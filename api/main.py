@@ -624,8 +624,8 @@ async def clear_session(session_id: str):
                 for f in files:
                     if "key" in f:
                         try:
-                            s3_storage.delete_file(f["key"])
-                            count += 1
+                            if s3_storage.delete_file(f["key"]):
+                                count += 1
                         except Exception:
                             pass
                 return count
