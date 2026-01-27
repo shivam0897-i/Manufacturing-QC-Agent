@@ -1,0 +1,37 @@
+# =============================================================================
+# Manufacturing QC Agent Configuration
+# =============================================================================
+# Non-sensitive settings. Secrets go in .env
+
+# Agent Identity
+AGENT_NAME: Manufacturing QC Agent
+AGENT_DESCRIPTION: AI agent for solar module defect detection and process optimization
+
+# LLM Configuration
+DEFAULT_LLM_MODEL: gemini/gemini-2.5-pro
+DEFAULT_VISION_MODEL: gemini/gemini-2.5-pro
+LLM_TEMPERATURE: 0.1
+LLM_MAX_TOKENS: 4096
+
+# Defect Detection Settings
+CONFIDENCE_THRESHOLD: 0.85
+FALSE_POSITIVE_TARGET: 0.05
+
+# Defect Categories (PVEL-AD - 12 classes matching trained model)
+DEFECT_CATEGORIES:
+  - black_core
+  - corner
+  - crack
+  - finger
+  - fragment
+  - horizontal_dislocation
+  - printing_error
+  - scratch
+  - short_circuit
+  - star_crack
+  - thick_line
+  - vertical_dislocation
+
+# External Services (optional)
+MODEL_PATH: best.pt
+# KNOWLEDGE_BASE_PATH: ./knowledge/embeddings

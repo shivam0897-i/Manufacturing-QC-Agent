@@ -1,0 +1,29 @@
+# Manufacturing QC Agent Requirements
+# ====================================
+
+# Core dependencies
+python-dotenv>=1.0.0
+
+# === Server & API ===
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+litellm>=1.0.0
+
+# === Agent Platform ===
+git+https://github.com/shivam0897-i/agent-platform.git
+boto3>=1.26.0  # Required for S3 storage
+pymongo>=4.3.0 # Required for MongoDB storage
+
+# === Data Processing ===
+pillow>=10.0.0
+numpy>=1.24.0
+pandas>=2.0.0
+opencv-python-headless>=4.8.0  # Use headless for server/docker environments
+
+# === Vision / YOLOv8 ===
+ultralytics>=8.0.0  # YOLOv8 for defect detection
+
+# === RAG / Knowledge Base (Phase 4) ===
+# sentence-transformers>=2.2.0
+# faiss-cpu>=1.7.4

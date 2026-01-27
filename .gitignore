@@ -1,0 +1,46 @@
+# Virtual environment
+venv/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment variables
+.env
+
+# Training data (large files)
+dev/
+training/data/
+runs/detect/
+
+# Model weights (large files)
+*.pt
+*.onnx
+training/models/
+
+# Kaggle credentials
+kaggle.json
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+dev/training/data/pvel_ad/pvel-ad-electroluminescence-pv-defect-dataset.zip

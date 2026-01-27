@@ -1,0 +1,10 @@
+# Exclude development and large data files
+dev/
+venv/
+__pycache__/
+*.pyc
+.env
+.git/
+outputs/
+temp/
+tests/
