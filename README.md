@@ -1,3 +1,13 @@
+---
+title: Manufacturing QC Agent
+emoji: 🔍
+colorFrom: blue
+colorTo: green
+sdk: docker
+python_version: "3.11"
+pinned: false
+---
+
 # Manufacturing Quality Control & Optimization Agent
 
 ![Status](https://img.shields.io/badge/Status-Production%20Ready-green)
