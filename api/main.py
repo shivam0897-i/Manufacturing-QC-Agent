@@ -527,9 +527,26 @@ You have memory of previous questions in this session.
             _session_store[session_id]["chat_history"].append(new_exchange)
         elif mongo_store:
             # Append to MongoDB chat history
-            mongo_store.update_session(session_id, {
-                "$push": {"chat_history": new_exchange}
-            })
+            # NOTE: We access .sessions directly to use $push, because update_session wraps input in $set
+            # which causes "The dollar ($) prefixed field '$push' ... is not allowed" error
+            if hasattr(mongo_store, "sessions"):
+                mongo_store.sessions.update_one(
+                    {"session_id": session_id},
+                    {
+                        "$push": {"chat_history": new_exchange},
+                        "$set": {"updated_at": datetime.utcnow()}
+                    }
+                )
+            else:
+                # Fallback: Read-Modify-Write if direct access fails
+                # Warning: Potential race condition, but safe for single-user chat
+                try:
+                    current = mongo_store.get_session(session_id)
+                    history = current.get("chat_history", []) if current else []
+                    history.append(new_exchange)
+                    mongo_store.update_session(session_id, {"chat_history": history})
+                except Exception as e:
+                    logger.error(f"[{session_id}] Failed to update chat history: {e}")
         
         return {
             "success": True,
