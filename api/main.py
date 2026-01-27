@@ -617,11 +617,26 @@ async def clear_session(session_id: str):
     # Clear from S3 (optional - delete uploaded files)
     if s3_storage:
         try:
+            # Helper to delete by prefix
+            def delete_by_prefix(prefix):
+                files = s3_storage.list_files(prefix)
+                count = 0
+                for f in files:
+                    if "key" in f:
+                        try:
+                            s3_storage.delete_file(f["key"])
+                            count += 1
+                        except Exception:
+                            pass
+                return count
+
             # Delete input files
-            s3_storage.delete_prefix(f"inputs/{session_id}/")
+            c1 = delete_by_prefix(f"inputs/{session_id}/")
             # Delete output files
-            s3_storage.delete_prefix(f"outputs/{session_id}/")
-            deleted_from.append("s3")
+            c2 = delete_by_prefix(f"outputs/{session_id}/")
+            
+            if c1 + c2 > 0:
+                deleted_from.append("s3")
         except Exception as e:
             logger.warning(f"[{session_id}] S3 delete warning: {e}")
     
