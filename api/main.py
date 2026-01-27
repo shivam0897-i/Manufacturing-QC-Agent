@@ -248,7 +248,10 @@ async def process_qc(
     
     # Create MongoDB session if available (tagged with agent name)
     if mongo_store:
-        mongo_store.create_session(session_id, metadata={"agent_name": AGENT_NAME})
+        # Check if session exists to avoid duplicates (idempotency)
+        if not mongo_store.get_session(session_id):
+            mongo_store.create_session(session_id, metadata={"agent_name": AGENT_NAME})
+        
         mongo_store.add_log(session_id, "upload", f"Processing {len(files)} files")
         mongo_store.update_status(session_id, "processing")
     
