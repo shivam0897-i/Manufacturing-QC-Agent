@@ -24,6 +24,10 @@ opencv-python-headless>=4.8.0  # Use headless for server/docker environments
 # === Vision / YOLOv8 ===
 ultralytics>=8.0.0  # YOLOv8 for defect detection
 
+# === Vision / EfficientNet ===
+torch>=2.0.0        # PyTorch for EfficientNet
+torchvision>=0.15.0 # EfficientNet models
+
 # === RAG / Knowledge Base (Phase 4) ===
 # sentence-transformers>=2.2.0
 # faiss-cpu>=1.7.4

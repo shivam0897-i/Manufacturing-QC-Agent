@@ -29,6 +29,7 @@ runs/detect/
 *.pt
 *.onnx
 training/models/
+pv_defect_efficientnet_b0_97/  # Keep only the .zip file
 
 # Kaggle credentials
 kaggle.json

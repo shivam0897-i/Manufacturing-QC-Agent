@@ -2,13 +2,22 @@
 Recommend Optimization Tool
 ===========================
 
-Generates intelligent process optimization recommendations based on 
-defect analysis and log anomalies using rule-based logic.
+Generates intelligent process optimization recommendations using:
+- LLM analysis with manufacturing rules as context (primary)
+- Rule-based fallback if LLM fails
 """
 
-from typing import Dict, Any, List, Optional
+import json
+from typing import Dict, Any, List
 from point9_platform.tools.decorator import tool
 
+# Import prompts
+from prompts.templates import (
+    RECOMMENDATION_SYSTEM_PROMPT,
+    RECOMMENDATION_USER_PROMPT,
+    format_defects_summary,
+    format_rules_context
+)
 
 # Defect-to-recommendation mapping
 DEFECT_RECOMMENDATIONS = {
@@ -122,6 +131,58 @@ DEFECT_RECOMMENDATIONS = {
     }
 }
 
+# RGB Surface Condition Recommendations (EfficientNet classifications)
+RGB_RECOMMENDATIONS = {
+    "Snow-Covered": {
+        "primary": {
+            "recommendation": "Clear snow from panel surface",
+            "priority": "high",
+            "parameter": "panel_cleaning",
+            "rationale": "Snow coverage blocks sunlight and reduces power output. Clear snow to restore generation capacity."
+        }
+    },
+    "Bird-drop": {
+        "primary": {
+            "recommendation": "Clean panel surface with appropriate cleaning solution",
+            "priority": "medium",
+            "parameter": "panel_cleaning",
+            "rationale": "Bird droppings cause hot spots and reduce efficiency. Schedule cleaning within 24-48 hours."
+        }
+    },
+    "Dusty": {
+        "primary": {
+            "recommendation": "Schedule routine panel cleaning",
+            "priority": "low",
+            "parameter": "maintenance_schedule",
+            "rationale": "Dust accumulation reduces efficiency by 5-25%. Include in regular maintenance schedule."
+        }
+    },
+    "Electrical-damage": {
+        "primary": {
+            "recommendation": "Disconnect panel and arrange professional inspection",
+            "priority": "critical",
+            "parameter": "safety_inspection",
+            "rationale": "Electrical damage poses safety risk. Isolate panel immediately and contact qualified technician."
+        }
+    },
+    "Physical-Damage": {
+        "primary": {
+            "recommendation": "Inspect panel for replacement",
+            "priority": "high",
+            "parameter": "panel_replacement",
+            "rationale": "Physical damage may compromise panel integrity and efficiency. Assess for repair or replacement."
+        }
+    },
+    "Clean": {
+        "primary": {
+            "recommendation": "No action required",
+            "priority": "low",
+            "parameter": None,
+            "rationale": "Panel is in good condition. Continue regular monitoring schedule."
+        }
+    }
+}
+
 # Anomaly-to-recommendation mapping
 ANOMALY_RECOMMENDATIONS = {
     "temperature": {
@@ -166,7 +227,7 @@ ANOMALY_RECOMMENDATIONS = {
 
 
 def get_defect_recommendations(defects: List[Dict]) -> List[Dict]:
-    """Generate recommendations based on detected defects."""
+    """Generate recommendations based on detected defects (both YOLOv8 and EfficientNet)."""
     recommendations = []
     seen_types = set()
     
@@ -177,6 +238,7 @@ def get_defect_recommendations(defects: List[Dict]) -> List[Dict]:
             continue
         seen_types.add(defect_type)
         
+        # Check manufacturing defects first (YOLOv8)
         if defect_type in DEFECT_RECOMMENDATIONS:
             rec_data = DEFECT_RECOMMENDATIONS[defect_type]
             primary = rec_data["primary"].copy()
@@ -187,6 +249,14 @@ def get_defect_recommendations(defects: List[Dict]) -> List[Dict]:
                 secondary = rec_data["secondary"].copy()
                 secondary["defect_source"] = defect_type
                 recommendations.append(secondary)
+        
+        # Check RGB surface conditions (EfficientNet)
+        elif defect_type in RGB_RECOMMENDATIONS:
+            rec_data = RGB_RECOMMENDATIONS[defect_type]
+            primary = rec_data["primary"].copy()
+            primary["defect_source"] = defect_type
+            primary["model_type"] = "rgb"
+            recommendations.append(primary)
     
     return recommendations
 
@@ -224,15 +294,56 @@ def get_anomaly_recommendations(anomalies: List[Dict]) -> List[Dict]:
     return recommendations
 
 
+def generate_llm_recommendations(defects: List[Dict], rules_context: str) -> Dict[str, Any]:
+    """Generate recommendations using LLM with manufacturing rules as context."""
+    try:
+        from litellm import completion
+        
+        defects_summary = format_defects_summary(defects)
+        user_prompt = RECOMMENDATION_USER_PROMPT.format(
+            defects_summary=defects_summary,
+            rules_context=rules_context
+        )
+        
+        messages = [
+            {"role": "system", "content": RECOMMENDATION_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        response = completion(
+            model="gemini/gemini-2.0-flash",
+            messages=messages,
+            temperature=0.2,
+            max_tokens=2000
+        )
+        
+        response_text = response.choices[0].message.content.strip()
+        
+        # Parse JSON from response
+        if "```json" in response_text:
+            response_text = response_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in response_text:
+            response_text = response_text.split("```")[1].split("```")[0].strip()
+        
+        result = json.loads(response_text)
+        result["source"] = "llm"
+        return result
+        
+    except Exception as e:
+        print(f"LLM recommendation failed: {e}")
+        return None
+
+
 @tool(
     name="recommend_optimization",
-    description="Generate process optimization recommendations based on defect analysis and log anomalies. Call this after analyze_image and analyze_logs."
+    description="Generate intelligent optimization recommendations using LLM analysis with manufacturing rules as context. Falls back to rule-based if LLM fails."
 )
 def recommend_optimization(
     state: Dict[str, Any] = None
 ) -> Dict[str, Any]:
     """
-    Generate optimization recommendations using rule-based analysis.
+    Generate optimization recommendations using LLM with rules as context.
+    Falls back to rule-based logic if LLM fails.
     
     Args:
         state: Current agent state (injected by executor)
@@ -240,57 +351,118 @@ def recommend_optimization(
     Returns:
         Optimization recommendations with priority and rationale
     """
-    all_recommendations = []
-    
-    # Get results from state (populated by previous tool calls)
     results = state.get("results", {}) if state else {}
     
-    # Get defects from analyze_image results
+    # Extract defects from analyze_image results
     defects = []
     image_result = results.get("analyze_image", {})
     if isinstance(image_result, dict) and image_result.get("status") == "success":
-        # Handle Batch Format
         if "results" in image_result and isinstance(image_result["results"], list):
             for res in image_result["results"]:
                 if isinstance(res, dict) and res.get("status") == "success":
                     defects.extend(res.get("defects", []))
-        # Handle Legacy/Single Formatting
         elif "defects" in image_result:
             defects = image_result.get("defects", [])
     
-    # Get anomalies from analyze_logs results  
+    # Extract anomalies from analyze_logs results  
     anomalies = []
     log_result = results.get("analyze_logs", {})
     if isinstance(log_result, dict) and log_result.get("status") == "success":
         anomalies = log_result.get("anomalies", [])
     
-    # Generate recommendations
+    # Try LLM-powered recommendations first
+    llm_result = None
     if defects:
-        all_recommendations.extend(get_defect_recommendations(defects))
+        # Combine manufacturing and RGB rules for context
+        all_rules = {**DEFECT_RECOMMENDATIONS, **RGB_RECOMMENDATIONS}
+        rules_context = format_rules_context(all_rules)
+        llm_result = generate_llm_recommendations(defects, rules_context)
+    
+    if llm_result:
+        llm_recs = llm_result.get("recommendations", [])
+        
+        # Helper to check if value is meaningful (not null/empty/N/A)
+        def is_valid(val):
+            if not val:
+                return False
+            if isinstance(val, str) and val.strip().lower() in ("n/a", "na", "none", "null", ""):
+                return False
+            return True
+        
+        # Normalize format with proper null handling
+        all_recommendations = []
+        for rec in llm_recs:
+            normalized = {
+                "recommendation": rec.get("action") or rec.get("recommendation", ""),
+                "priority": rec.get("priority", "medium"),
+                "rationale": rec.get("rationale") if is_valid(rec.get("rationale")) else None,
+                "source": "llm"
+            }
+            # Only include optional fields if they have meaningful values
+            if is_valid(rec.get("parameter")):
+                normalized["parameter"] = rec["parameter"]
+            if is_valid(rec.get("target_value")):
+                normalized["target_value"] = rec["target_value"]
+            if is_valid(rec.get("expected_impact")):
+                normalized["expected_impact"] = rec["expected_impact"]
+            all_recommendations.append(normalized)
+        
+        # Add anomaly recommendations from rules (LLM focused on defects)
+        if anomalies:
+            for rec in get_anomaly_recommendations(anomalies):
+                rec["source"] = "rules"
+                all_recommendations.append(rec)
+        
+        priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        all_recommendations.sort(key=lambda x: priority_order.get(x.get("priority", "low"), 3))
+        
+        priority_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for rec in all_recommendations:
+            priority_counts[rec.get("priority", "low")] += 1
+        
+        return {
+            "status": "success",
+            "source": "llm",
+            "analysis": llm_result.get("analysis", {}),
+            "recommendations": all_recommendations,
+            "total_recommendations": len(all_recommendations),
+            "priority_summary": priority_counts,
+            "defects_analyzed": len(defects),
+            "anomalies_analyzed": len(anomalies)
+        }
+    
+    # Fallback to rule-based recommendations
+    all_recommendations = []
+    
+    if defects:
+        for rec in get_defect_recommendations(defects):
+            rec["source"] = "rules"
+            all_recommendations.append(rec)
     
     if anomalies:
-        all_recommendations.extend(get_anomaly_recommendations(anomalies))
+        for rec in get_anomaly_recommendations(anomalies):
+            rec["source"] = "rules"
+            all_recommendations.append(rec)
     
-    # Sort by priority
     priority_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     all_recommendations.sort(key=lambda x: priority_order.get(x.get("priority", "low"), 3))
     
-    # If no recommendations, provide general advice
     if not all_recommendations:
         all_recommendations.append({
             "recommendation": "No immediate action required",
             "priority": "low",
             "parameter": None,
-            "rationale": "No critical anomalies or defects detected. Continue monitoring and follow daily maintenance checklist."
+            "rationale": "No critical anomalies or defects detected.",
+            "source": "rules"
         })
     
-    # Count by priority
     priority_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     for rec in all_recommendations:
         priority_counts[rec.get("priority", "low")] += 1
     
     return {
         "status": "success",
+        "source": "rules",
         "recommendations": all_recommendations,
         "total_recommendations": len(all_recommendations),
         "priority_summary": priority_counts,

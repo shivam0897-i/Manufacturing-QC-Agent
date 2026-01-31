@@ -121,10 +121,18 @@ def get_session(session_id: str) -> Optional[Dict[str, Any]]:
     # Fallback to in-memory store
     return _session_store.get(session_id)
 
+# OpenAPI tags for organizing endpoints
+tags_metadata = [
+    {"name": "Session", "description": "Session management - create, list, and clear sessions"},
+    {"name": "Agent", "description": "AI agent for defect detection and process optimization"},
+    {"name": "Streaming", "description": "Real-time updates via Server-Sent Events"},
+]
+
 app = FastAPI(
     title="Manufacturing QC Agent",
     description="AI agent for solar module defect detection and process optimization",
-    version="1.0.0"
+    version="1.0.0",
+    openapi_tags=tags_metadata
 )
 
 # Include platform health endpoints
@@ -132,31 +140,41 @@ app.include_router(create_health_router())
 
 
 # === EAGER MODEL LOADING ===
-# Load YOLOv8 model at server startup for faster first-request response
 @app.on_event("startup")
-async def load_model_on_startup():
-    """Pre-load the YOLOv8 defect detection model at server startup."""
+async def load_models_on_startup():
+    """Pre-load defect detection models at server startup."""
     try:
         from vision.detector import get_detector
-        from tools.analyze_image import find_model_path
+        from vision.rgb_classifier import get_rgb_classifier
+        from tools.analyze_image import find_model_path, find_rgb_model_path
         
-        model_path = find_model_path()
-        if model_path:
-            logger.info(f"Loading YOLOv8 model from: {model_path}")
-            detector = get_detector(model_path)
+        # Load YOLOv8
+        yolo_path = find_model_path()
+        if yolo_path:
+            logger.info(f"Loading YOLOv8: {yolo_path}")
+            detector = get_detector(yolo_path)
             if detector.load_model():
-                logger.info("✅ YOLOv8 model loaded successfully at startup")
+                logger.info("✅ YOLOv8 ready")
             else:
-                logger.warning("⚠️ Failed to load YOLOv8 model - vision features unavailable")
-        else:
-            logger.warning("⚠️ No model file found (best.pt) - vision features unavailable")
+                logger.warning("⚠️ YOLOv8 failed to load")
+        
+        # Load EfficientNet
+        rgb_path = find_rgb_model_path()
+        if rgb_path:
+            logger.info(f"Loading EfficientNet: {rgb_path}")
+            classifier = get_rgb_classifier(rgb_path)
+            if classifier.load_model():
+                logger.info("✅ EfficientNet ready")
+            else:
+                logger.warning("⚠️ EfficientNet failed to load")
+                
     except ImportError as e:
         logger.warning(f"⚠️ Vision module not available: {e}")
     except Exception as e:
-        logger.error(f"❌ Error loading model at startup: {e}")
+        logger.error(f"❌ Error loading models: {e}")
 
 
-@app.post("/session/create", summary="Create a new session for a user")
+@app.post("/session/create", summary="Create a new session for a user", tags=["Session"])
 async def create_session():
     """
     Create a new QC session for a user.
@@ -221,7 +239,7 @@ Be concise and actionable."""
         return f"Analysis complete: {defect_summary} {anomaly_summary}"
 
 
-@app.post("/process", summary="Analyze files using AI agent with planning")
+@app.post("/process", summary="Analyze files using AI agent with planning", tags=["Agent"])
 async def process_qc(
     message: str = Form("Analyze for defects"),
     session_id: Optional[str] = Form(None),
@@ -350,8 +368,18 @@ async def process_qc(
         log_results = agent_results.get("analyze_logs", {})
         anomalies = log_results.get("anomalies", []) if log_results.get("status") == "success" else []
         
-        # Get recommendations
+        # Get recommendations - if agent didn't call it, call directly
         rec_results = agent_results.get("recommend_optimization", {})
+        if not rec_results or rec_results.get("status") != "success":
+            # Agent skipped recommend_optimization - call it directly
+            try:
+                from tools.recommend_optimization import recommend_optimization
+                state = {"results": {"analyze_image": image_results, "analyze_logs": log_results}}
+                rec_results = recommend_optimization(state=state)
+                logger.info(f"[{session_id}] Generated {len(rec_results.get('recommendations', []))} recommendations (direct call)")
+            except Exception as e:
+                logger.warning(f"[{session_id}] Direct recommendation failed: {e}")
+                rec_results = {}
         recommendations = rec_results.get("recommendations", []) if rec_results.get("status") == "success" else []
         
         # Store intermediate results in MongoDB
@@ -408,7 +436,8 @@ async def process_qc(
             all_severities.append(a.get("severity", "low"))
         highest_severity = max(all_severities, key=lambda s: severity_order.get(s, 0)) if all_severities else None
         
-        return {
+        # Build response, omitting null/empty fields
+        response = {
             "success": True,
             "session_id": session_id,
             "processed_at": datetime.now().isoformat() + "Z",
@@ -421,11 +450,18 @@ async def process_qc(
                 "action_required": len(defects) > 0 or any(a.get("severity") in ["critical", "high"] for a in anomalies),
                 "highest_severity": highest_severity
             },
-            "image_analysis": image_results if image_results else None,
-            "log_analysis": log_results if log_results else None,
-            "recommendations": recommendations,
-            "error": result.get("error")
+            "recommendations": recommendations
         }
+        
+        # Only include non-null analysis results
+        if image_results:
+            response["image_analysis"] = image_results
+        if log_results:
+            response["log_analysis"] = log_results
+        if result.get("error"):
+            response["error"] = result["error"]
+        
+        return response
         
     except Exception as e:
         logger.error(f"[{session_id}] Error: {str(e)}")
@@ -440,7 +476,7 @@ async def process_qc(
                 pass
 
 
-@app.post("/chat", summary="Continue conversation with the agent")
+@app.post("/chat", summary="Continue conversation with the agent", tags=["Agent"])
 async def chat(message: str = Form(...), session_id: str = Form(...)):
     """Continue conversation about analysis results using session_id."""
     logger.info(f"[{session_id}] Chat: {message}")
@@ -568,7 +604,7 @@ You have memory of previous questions in this session.
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/session/{session_id}", summary="Clear/delete a session")
+@app.delete("/session/{session_id}", summary="Clear/delete a session", tags=["Session"])
 async def clear_session(session_id: str):
     """
     Clear all data for a session.
@@ -660,7 +696,7 @@ async def clear_session(session_id: str):
     }
 
 
-@app.post("/session/{session_id}/clear-chat", summary="Clear chat history only")
+@app.post("/session/{session_id}/clear-chat", summary="Clear chat history only", tags=["Session"])
 async def clear_chat_history(session_id: str):
     """
     Clear only the chat history for a session, keeping analysis results.
@@ -714,7 +750,7 @@ async def clear_chat_history(session_id: str):
         "session_id": session_id
     }
 
-@app.get("/stream/{session_id}", summary="Stream processing updates (SSE)")
+@app.get("/stream/{session_id}", summary="Stream processing updates (SSE)", tags=["Streaming"])
 async def stream_updates(session_id: str):
     """
     Stream processing updates for a session using Server-Sent Events.
@@ -785,7 +821,7 @@ async def stream_updates(session_id: str):
     )
 
 
-@app.get("/sessions", summary="List recent sessions")
+@app.get("/sessions", summary="List recent sessions", tags=["Session"])
 async def list_sessions(limit: int = 10, status: Optional[str] = None):
     """
     List recent QC analysis sessions.
@@ -825,7 +861,7 @@ async def list_sessions(limit: int = 10, status: Optional[str] = None):
     }
 
 
-@app.get("/sessions/{session_id}", summary="Get session details")
+@app.get("/sessions/{session_id}", summary="Get session details", tags=["Session"])
 async def get_session_details(session_id: str):
     """
     Get detailed information about a specific session.

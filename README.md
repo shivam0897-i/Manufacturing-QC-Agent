@@ -39,8 +39,9 @@ Built on the [Point9 Agent Platform](https://github.com/shivam0897-i/point9-agen
 |------------|-------------|
 | **Batch Processing** | Analyze entire manufacturing lots in a single request |
 | **12 Defect Types** | Cracks, Black Cores, Finger Interruptions, Thick Lines, etc. |
+| **6 Surface Conditions** | Bird-drop, Dusty, Snow-Covered, Physical/Electrical Damage |
 | **Auto-Discovery** | Automatically finds and processes all uploaded images |
-| **YOLOv8 Model** | Custom-trained on PVEL-AD dataset (640px inference) |
+| **Dual Models** | YOLOv8 (grayscale EL) + EfficientNet (RGB surface) |
 
 ### 📊 Log Anomaly Analysis
 | Capability | Description |
@@ -53,8 +54,9 @@ Built on the [Point9 Agent Platform](https://github.com/shivam0897-i/point9-agen
 ### 💡 Process Optimization
 | Capability | Description |
 |------------|-------------|
+| **LLM-Powered** | Gemini 2.0 Flash generates contextual recommendations |
 | **Root Cause Correlation** | Links defects to process anomalies |
-| **Prioritized Actions** | High/Medium/Low priority recommendations |
+| **Prioritized Actions** | Critical/High/Medium/Low priority recommendations |
 | **Domain Knowledge** | Rule-based mappings for solar manufacturing |
 
 ### 💬 Conversational Interface
@@ -242,7 +244,8 @@ curl -X DELETE http://localhost:8000/session/abc123-def456
 # Model Settings
 CONFIDENCE_THRESHOLD: 0.25
 IMAGE_SIZE: 640
-MODEL_PATH: best.pt
+MODEL_PATH: best.pt           # YOLOv8 for grayscale EL images
+RGB_MODEL_PATH: pv_defect_efficientnet_b0_97.pth.zip  # EfficientNet for RGB
 
 # LLM Settings
 llm:
@@ -282,7 +285,8 @@ Manufacturing-QC-Agent/
 ├── prompts/
 │   └── templates.py         # LLM prompts
 ├── vision/
-│   └── detector.py          # YOLO model wrapper
+│   ├── detector.py          # YOLO model wrapper
+│   └── rgb_classifier.py    # EfficientNet RGB classifier
 ├── config.yaml              # Agent configuration
 ├── requirements.txt         # Python dependencies
 ├── Dockerfile               # Container definition

@@ -161,6 +161,116 @@ class DefectDetector:
                 "error": f"Detection failed: {str(e)}"
             }
     
+    def detect_and_annotate(self, image_path: str, output_dir: str = None) -> Dict[str, Any]:
+        """
+        Detect defects and save annotated image with bounding boxes.
+        
+        Args:
+            image_path: Path to the input image
+            output_dir: Directory to save annotated image (defaults to temp)
+            
+        Returns:
+            Detection results plus path to annotated image
+        """
+        if not os.path.exists(image_path):
+            return {
+                "status": "failed",
+                "error": f"Image not found: {image_path}"
+            }
+        
+        # Ensure model is loaded
+        if not self._loaded and not self.load_model():
+            return {
+                "status": "failed", 
+                "error": "Model not loaded. Please provide a valid model path."
+            }
+        
+        try:
+            # Run inference
+            results = self.model(image_path, conf=self.confidence_threshold, verbose=False)
+            
+            # Get detection results (same as detect() method)
+            defects = []
+            for result in results:
+                boxes = result.boxes
+                if boxes is None:
+                    continue
+                    
+                for i in range(len(boxes)):
+                    cls_id = int(boxes.cls[i].item())
+                    confidence = float(boxes.conf[i].item())
+                    bbox = boxes.xyxy[i].tolist()
+                    class_name = DEFECT_CLASSES[cls_id] if cls_id < len(DEFECT_CLASSES) else f"class_{cls_id}"
+                    
+                    defects.append({
+                        "defect_type": class_name,
+                        "class_id": cls_id,
+                        "confidence": round(confidence, 3),
+                        "bounding_box": {
+                            "x1": round(bbox[0], 1),
+                            "y1": round(bbox[1], 1),
+                            "x2": round(bbox[2], 1),
+                            "y2": round(bbox[3], 1),
+                            "width": round(bbox[2] - bbox[0], 1),
+                            "height": round(bbox[3] - bbox[1], 1)
+                        },
+                        "severity": SEVERITY_MAP.get(class_name, "medium")
+                    })
+            
+            defects.sort(key=lambda x: x["confidence"], reverse=True)
+            
+            severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+            for d in defects:
+                severity_counts[d["severity"]] += 1
+            
+            # Save annotated image
+            import tempfile
+            if output_dir is None:
+                output_dir = tempfile.gettempdir()
+            
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Generate annotated filename
+            from pathlib import Path as PathLib
+            input_filename = PathLib(image_path).stem
+            annotated_filename = f"{input_filename}_annotated.jpg"
+            annotated_path = os.path.join(output_dir, annotated_filename)
+            
+            # Use YOLOv8's built-in plot() to draw boxes
+            # Note: plot() returns BGR format (OpenCV convention)
+            annotated_img = None
+            for result in results:
+                annotated_img = result.plot()  # Returns numpy array (BGR) with boxes drawn
+            
+            if annotated_img is not None:
+                # Save using cv2 (preferred - keeps BGR format) or PIL (needs BGR→RGB)
+                try:
+                    import cv2
+                    cv2.imwrite(annotated_path, annotated_img)
+                except ImportError:
+                    # Fallback to PIL - must convert BGR to RGB
+                    from PIL import Image
+                    import numpy as np
+                    rgb_img = annotated_img[:, :, ::-1]  # BGR to RGB
+                    Image.fromarray(rgb_img).save(annotated_path)
+            
+            return {
+                "status": "success",
+                "image_path": image_path,
+                "annotated_image_path": annotated_path,
+                "defects": defects,
+                "total_defects": len(defects),
+                "has_defects": len(defects) > 0,
+                "severity_counts": severity_counts,
+                "model_used": self.model_path
+            }
+            
+        except Exception as e:
+            return {
+                "status": "failed",
+                "error": f"Detection and annotation failed: {str(e)}"
+            }
+    
     def detect_batch(self, image_paths: List[str]) -> List[Dict[str, Any]]:
         """Detect defects in multiple images."""
         return [self.detect(path) for path in image_paths]

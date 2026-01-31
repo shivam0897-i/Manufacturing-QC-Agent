@@ -44,7 +44,9 @@ Be precise and efficient. Use one tool at a time.
 CRITICAL RULES:
 1. For image analysis → call 'analyze_image' with NO arguments to auto-process all
 2. For log analysis → call 'analyze_logs' (it auto-finds the log file)
-3. Do NOT skip steps - execute exactly what the plan says"""
+3. ALWAYS call 'recommend_optimization' AFTER analyze_image/analyze_logs to generate recommendations
+4. Do NOT skip recommend_optimization - it generates actionable fixes for detected issues
+5. Do NOT call the same tool twice - each tool only needs to be called once"""
 
 RESPONDER_PROMPT = """You are a helpful Manufacturing Quality Control assistant.
 
@@ -58,8 +60,105 @@ Guidelines:
 - Use tables for clarity when presenting multiple defects
 - Be concise but complete"""
 
+
+# === LLM-POWERED RECOMMENDATION PROMPTS ===
+
+RECOMMENDATION_SYSTEM_PROMPT = """You are a solar panel manufacturing QC expert with deep knowledge of:
+- EL (Electroluminescence) imaging and defect patterns
+- Lamination, soldering, and screen printing processes
+- Equipment calibration and parameter optimization
+- Root cause analysis and corrective actions
+
+Analyze defects and provide actionable, prioritized recommendations."""
+
+
+RECOMMENDATION_USER_PROMPT = """Analyze the following defects and provide expert recommendations.
+
+## DETECTED DEFECTS
+{defects_summary}
+
+## REFERENCE KNOWLEDGE (Equipment rules)
+{rules_context}
+
+## OUTPUT FORMAT (JSON only)
+{{
+  "analysis": {{
+    "root_cause": "Brief root cause description",
+    "pattern": "Observed pattern across defects",
+    "severity": "critical|high|medium|low",
+    "confidence": 0.0-1.0
+  }},
+  "recommendations": [
+    {{
+      "action": "Specific action to take",
+      "priority": "critical|high|medium|low",
+      "parameter": "Equipment parameter",
+      "target_value": "Recommended value",
+      "rationale": "Why this helps",
+      "expected_impact": "Expected improvement"
+    }}
+  ]
+}}"""
+
+
+RGB_RECOMMENDATION_PROMPT = """Analyze surface condition on solar panel and provide maintenance recommendations.
+
+## DETECTED CONDITION
+Class: {detected_class}
+Confidence: {confidence}
+Severity: {severity}
+
+## OUTPUT FORMAT (JSON only)
+{{
+  "condition": "{detected_class}",
+  "recommendations": [
+    {{
+      "action": "Maintenance action",
+      "priority": "critical|high|medium|low",
+      "timeline": "immediate|within_24h|within_week|scheduled",
+      "rationale": "Why needed"
+    }}
+  ],
+  "impact_if_ignored": "Consequences"
+}}"""
+
+
+def format_defects_summary(defects: list) -> str:
+    """Format defects list into readable summary for LLM."""
+    if not defects:
+        return "No defects detected."
+    
+    defect_counts = {}
+    for d in defects:
+        dtype = d.get("defect_type", "unknown")
+        defect_counts[dtype] = defect_counts.get(dtype, 0) + 1
+    
+    lines = []
+    for dtype, count in defect_counts.items():
+        sev = next((d.get("severity", "unknown") for d in defects if d.get("defect_type") == dtype), "unknown")
+        lines.append(f"- {dtype}: {count}x, severity: {sev}")
+    
+    return "\n".join(lines)
+
+
+def format_rules_context(rules_dict: dict) -> str:
+    """Format static rules into context string for LLM."""
+    lines = []
+    for defect_type, rule_data in rules_dict.items():
+        primary = rule_data.get("primary", {})
+        lines.append(f"### {defect_type.upper()}")
+        lines.append(f"- Action: {primary.get('recommendation', 'N/A')}")
+        lines.append(f"- Priority: {primary.get('priority', 'N/A')}")
+        lines.append(f"- Parameter: {primary.get('parameter', 'N/A')}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 PROMPTS = {
     "planner": PLANNER_PROMPT,
     "executor": EXECUTOR_PROMPT,
     "responder": RESPONDER_PROMPT,
+    "recommendation_system": RECOMMENDATION_SYSTEM_PROMPT,
+    "recommendation_user": RECOMMENDATION_USER_PROMPT,
+    "rgb_recommendation": RGB_RECOMMENDATION_PROMPT,
 }

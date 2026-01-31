@@ -34,4 +34,13 @@ DEFECT_CATEGORIES:
 
 # External Services (optional)
 MODEL_PATH: best.pt
-# KNOWLEDGE_BASE_PATH: ./knowledge/embeddings
+RGB_MODEL_PATH: pv_defect_efficientnet_b0_97.pth.zip
+
+# RGB Surface Categories (EfficientNet - 6 classes)
+SURFACE_CATEGORIES:
+  - Bird-drop
+  - Clean
+  - Dusty
+  - Electrical-damage
+  - Physical-Damage
+  - Snow-Covered
