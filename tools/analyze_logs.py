@@ -82,16 +82,32 @@ def detect_anomalies(
     Detect anomalies using statistical analysis (z-score method).
     Anomalies are values that deviate more than threshold_std standard deviations.
     """
+    import yaml
+    import os
+    
+    # Load field units from config
+    field_units = {}
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            field_units = config.get("FIELD_UNITS", {})
+            # Convert keys to lowercase for case-insensitive matching
+            field_units = {k.lower(): v for k, v in field_units.items()}
+    except Exception:
+        pass  # Continue without units if config not found
+    
     anomalies = []
     
     for field in numeric_fields:
         # Get all numeric values for this field
         values = []
         for i, record in enumerate(records):
-            if field in record and isinstance(record[field], (int, float)):
-                values.append((i, record[field]))
+            val = record.get(field)
+            if isinstance(val, (int, float)):
+                values.append((i, val))
         
-        if len(values) < 3:  # Need at least 3 values for stats
+        if len(values) < 3:  # Need at least 3 values for meaningful stats
             continue
         
         # Calculate statistics
@@ -117,13 +133,18 @@ def detect_anomalies(
                 else:
                     severity = "medium"
                 
+                # Get unit for this field (case-insensitive lookup)
+                unit = field_units.get(field.lower())
+                unit_suffix = f" {unit}" if unit else ""
+                
                 anomalies.append({
                     "anomaly_type": f"{field}_anomaly",
                     "field": field,
                     "timestamp": str(timestamp),
                     "value": round(value, 2),
+                    "unit": unit,  # Will be None if not found in config
                     "expected_mean": round(avg, 2),
-                    "expected_range": f"{round(avg - threshold_std*std, 2)} - {round(avg + threshold_std*std, 2)}",
+                    "expected_range": f"{round(avg - threshold_std*std, 2)}{unit_suffix} - {round(avg + threshold_std*std, 2)}{unit_suffix}",
                     "z_score": round(z_score, 2),
                     "severity": severity
                 })
@@ -133,6 +154,20 @@ def detect_anomalies(
 
 def detect_trends(records: List[Dict[str, Any]], numeric_fields: List[str]) -> List[Dict[str, Any]]:
     """Detect trends in numeric parameters over time."""
+    import yaml
+    import os
+    
+    # Load field units from config
+    field_units = {}
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+            field_units = config.get("FIELD_UNITS", {})
+            field_units = {k.lower(): v for k, v in field_units.items()}
+    except Exception:
+        pass
+    
     trends = []
     
     for field in numeric_fields:
@@ -151,13 +186,17 @@ def detect_trends(records: List[Dict[str, Any]], numeric_fields: List[str]) -> L
         
         if abs(change_pct) > 5:  # More than 5% change
             trend = "increasing" if change > 0 else "decreasing"
+            unit = field_units.get(field.lower())
+            unit_suffix = f" {unit}" if unit else ""
+            
             trends.append({
                 "parameter": field,
                 "trend": trend,
-                "change": f"{'+' if change > 0 else ''}{round(change, 2)}",
+                "change": f"{'+' if change > 0 else ''}{round(change, 2)}{unit_suffix}",
                 "change_percent": f"{round(change_pct, 1)}%",
                 "first_half_avg": round(first_half_avg, 2),
-                "second_half_avg": round(second_half_avg, 2)
+                "second_half_avg": round(second_half_avg, 2),
+                "unit": unit
             })
     
     return trends
@@ -242,15 +281,30 @@ def analyze_logs(
         trends = detect_trends(records, numeric_fields)
         
         # Calculate summary statistics
+        # Load field units for stats
+        import yaml
+        import os
+        field_units = {}
+        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                field_units = config.get("FIELD_UNITS", {})
+                field_units = {k.lower(): v for k, v in field_units.items()}
+        except Exception:
+            pass
+        
         summary_stats = {}
         for field in numeric_fields:
             values = [r[field] for r in records if field in r and isinstance(r[field], (int, float))]
             if values:
+                unit = field_units.get(field.lower())
                 summary_stats[field] = {
                     "min": round(min(values), 2),
                     "max": round(max(values), 2),
                     "mean": round(mean(values), 2),
-                    "std": round(stdev(values), 2) if len(values) > 1 else 0
+                    "std": round(stdev(values), 2) if len(values) > 1 else 0,
+                    "unit": unit
                 }
         
         # Count anomalies by severity
