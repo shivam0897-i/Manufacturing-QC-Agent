@@ -271,6 +271,7 @@ def get_anomaly_recommendations(anomalies: List[Dict]) -> List[Dict]:
         severity = anomaly.get("severity", "medium")
         value = anomaly.get("value", 0)
         expected_mean = anomaly.get("expected_mean", 0)
+        unit = anomaly.get("unit")  # Get unit from anomaly
         
         # Determine if high or low anomaly
         direction = "high" if value > expected_mean else "low"
@@ -289,6 +290,7 @@ def get_anomaly_recommendations(anomalies: List[Dict]) -> List[Dict]:
                 rec_data["anomaly_source"] = anomaly.get("anomaly_type", f"{field}_anomaly")
                 rec_data["anomaly_value"] = value
                 rec_data["expected_value"] = expected_mean
+                rec_data["unit"] = unit  # Include unit for frontend display
                 recommendations.append(rec_data)
     
     return recommendations
