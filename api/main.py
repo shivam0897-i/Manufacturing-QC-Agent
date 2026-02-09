@@ -341,12 +341,16 @@ async def process_qc(
         logger.info(f"[{session_id}] Starting agent processing with {len(documents)} documents...")
         logger.info(f"[{session_id}] Enhanced message: {enhanced_message[:200]}...")
         
-        result = agent.process(
+        # Run in thread pool to avoid blocking event loop (enables real-time SSE streaming)
+        import asyncio
+        result = await asyncio.to_thread(
+            agent.process,
             message=enhanced_message,
             documents=documents
         )
         
         logger.info(f"[{session_id}] Agent processing complete")
+
         
         # Extract results from agent response
         agent_results = result.get("results", {})
