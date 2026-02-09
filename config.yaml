@@ -44,3 +44,52 @@ SURFACE_CATEGORIES:
   - Electrical-damage
   - Physical-Damage
   - Snow-Covered
+
+# Field Units Mapping for Anomaly Detection
+# Maps field names (case-insensitive) to their units
+# Verified against solar panel manufacturing industry standards
+FIELD_UNITS:
+  # Temperature (industry standard: °C for lamination 140-150°C)
+  temperature: "°C"
+  temp: "°C"
+  cell_temperature: "°C"
+  ambient_temperature: "°C"
+  lamination_temperature: "°C"
+  soldering_temperature: "°C"
+  
+  # Pressure (industry standard: bar for lamination ~1 bar)
+  pressure: "bar"
+  vacuum_pressure: "mbar"
+  lamination_pressure: "bar"
+  
+  # Electrical (STC testing standards)
+  voltage: "V"
+  voc: "V"                    # Open-circuit voltage
+  vmp: "V"                    # Max power voltage
+  current: "A"
+  isc: "A"                    # Short-circuit current
+  imp: "A"                    # Max power current
+  power: "W"
+  pmax: "Wp"                  # Peak watts
+  irradiance: "W/m²"          # Standard: 1000 W/m² at STC
+  
+  # Speed/Rate
+  speed: "m/min"
+  line_speed: "m/min"
+  flow_rate: "L/min"
+  
+  # Dimensions
+  thickness: "mm"
+  width: "mm"
+  length: "mm"
+  
+  # Environmental
+  humidity: "%"
+  moisture: "%"
+  
+  # Time (lamination dwell time: 20-35 min typical)
+  cycle_time: "s"
+  dwell_time: "min"
+  curing_time: "min"
+
+
