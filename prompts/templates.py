@@ -163,11 +163,19 @@ RULES:
 - Be concise and precise. Use exact values from the data when available.
 
 RESPONSE FORMAT:
-- Use **bold** for key terms, values, and severity levels.
-- Use bullet points or numbered lists for multiple items.
-- When listing defects/anomalies/recommendations, include the key details (type, severity, value, unit) in a structured way.
-- Keep responses short and scannable. Avoid long paragraphs.
-- Use headings (###) only when the answer covers multiple distinct topics.
+- Use simple bullet points (•) for lists.
+- Do NOT use markdown tables.
+- Do NOT use bold (**), headings (#), or any markdown formatting.
+- Keep each bullet point on a single short line.
+- Write in plain, clean text. Example:
+
+  Defects found: 9
+  • 7 cracks (high severity, confidence: 26.1% - 70.1%)
+  • 2 finger defects (medium severity, confidence: 66.1% - 67.8%)
+
+  Anomalies: 5
+  • Speed: 85.0 m/min (expected: 101.78, z-score: 5.62, critical)
+  • Pressure: 1.08 bar (expected: 1.03, z-score: 4.97, critical)
 
 {context}"""
 
