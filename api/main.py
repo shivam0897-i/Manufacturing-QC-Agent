@@ -560,16 +560,9 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
         chat_history = session.get("chat_history", [])[-10:]
         
         # Build messages with history
+        from prompts.templates import CHAT_SYSTEM_PROMPT
         messages = [
-            {"role": "system", "content": f"""You are a manufacturing quality control expert assistant for this analysis session.
-
-RULES:
-- Answer questions about the analysis results provided below. Reference specific data points, values, and findings.
-- You may also answer general manufacturing QC questions (e.g. what causes cracks, what is z-score, industry best practices, defect prevention, process optimization).
-- Do NOT answer questions unrelated to manufacturing, quality control, or this session's analysis. If asked, politely redirect: "I can only help with manufacturing QC topics and this session's analysis results."
-- Be concise and precise. Use exact values from the data when available.
-
-{full_context}"""}
+            {"role": "system", "content": CHAT_SYSTEM_PROMPT.format(context=full_context)}
         ]
         
         # Add chat history
