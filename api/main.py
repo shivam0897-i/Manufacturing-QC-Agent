@@ -114,7 +114,8 @@ def get_session(session_id: str) -> Optional[Dict[str, Any]]:
                 "analysis_results": final.get("raw_results", {}),
                 "defects": final.get("defects", []),
                 "anomalies": final.get("anomalies", []),
-                "recommendations": final.get("recommendations", [])
+                "recommendations": final.get("recommendations", []),
+                "chat_history": session.get("chat_history", [])
             }
         return None
     
@@ -503,7 +504,7 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
         recommendations = session.get("recommendations", [])
         analysis_results = session.get("analysis_results", {})
         
-        # Build detailed context
+        # Build detailed context with FULL data for meaningful answers
         context_parts = ["=== PREVIOUS ANALYSIS RESULTS ===\n"]
         
         # Defect details
@@ -512,24 +513,46 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
             for i, d in enumerate(defects, 1):
                 defect_type = d.get('defect_type', d.get('class_name', 'unknown'))
                 confidence = d.get('confidence', 0)
-                context_parts.append(f"  {i}. {defect_type} (confidence: {confidence:.1%})")
+                severity = d.get('severity', 'unknown')
+                bbox = d.get('bounding_box', {})
+                context_parts.append(f"  {i}. Type: {defect_type}, Severity: {severity}, Confidence: {confidence:.1%}")
+                if bbox:
+                    context_parts.append(f"     Location: x1={bbox.get('x1')}, y1={bbox.get('y1')}, x2={bbox.get('x2')}, y2={bbox.get('y2')}")
         
         # Anomaly details
         context_parts.append(f"\nANOMALIES FOUND: {len(anomalies)}")
         if anomalies:
             for i, a in enumerate(anomalies, 1):
                 field = a.get('field', 'unknown')
-                anomaly_type = a.get('type', a.get('anomaly_type', 'deviation'))
                 value = a.get('value', 'N/A')
-                context_parts.append(f"  {i}. {field}: {anomaly_type} (value: {value})")
+                unit = a.get('unit', '')
+                severity = a.get('severity', 'unknown')
+                expected_mean = a.get('expected_mean', 'N/A')
+                expected_range = a.get('expected_range', 'N/A')
+                z_score = a.get('z_score', 'N/A')
+                timestamp = a.get('timestamp', '')
+                context_parts.append(f"  {i}. {field}: value={value}{' ' + unit if unit else ''}, severity={severity}, z_score={z_score}")
+                context_parts.append(f"     Expected: mean={expected_mean}, range={expected_range}, at={timestamp}")
         
-        # Recommendation details
+        # Recommendation details - FULL info
         context_parts.append(f"\nRECOMMENDATIONS: {len(recommendations)}")
         if recommendations:
             for i, r in enumerate(recommendations, 1):
-                title = r.get('title', r.get('action', 'Recommendation'))
+                rec_text = r.get('recommendation', r.get('title', r.get('action', 'Recommendation')))
                 priority = r.get('priority', 'medium')
-                context_parts.append(f"  {i}. [{priority.upper()}] {title}")
+                rationale = r.get('rationale', '')
+                parameter = r.get('parameter', '')
+                source = r.get('source', '')
+                anomaly_value = r.get('anomaly_value', '')
+                expected_value = r.get('expected_value', '')
+                unit = r.get('unit', '')
+                context_parts.append(f"  {i}. [{priority.upper()}] {rec_text}")
+                if rationale:
+                    context_parts.append(f"     Rationale: {rationale}")
+                if parameter:
+                    context_parts.append(f"     Parameter: {parameter}, Current: {anomaly_value}{' ' + unit if unit else ''}, Expected: {expected_value}{' ' + unit if unit else ''}")
+                if source:
+                    context_parts.append(f"     Source: {source}")
         
         full_context = "\n".join(context_parts)
         
@@ -538,9 +561,13 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
         
         # Build messages with history
         messages = [
-            {"role": "system", "content": f"""You are a manufacturing QC expert assistant. 
-Answer questions based on the analysis results below. Be specific and reference the actual data.
-You have memory of previous questions in this session.
+            {"role": "system", "content": f"""You are a manufacturing quality control expert assistant for this analysis session.
+
+RULES:
+- Answer questions about the analysis results provided below. Reference specific data points, values, and findings.
+- You may also answer general manufacturing QC questions (e.g. what causes cracks, what is z-score, industry best practices, defect prevention, process optimization).
+- Do NOT answer questions unrelated to manufacturing, quality control, or this session's analysis. If asked, politely redirect: "I can only help with manufacturing QC topics and this session's analysis results."
+- Be concise and precise. Use exact values from the data when available.
 
 {full_context}"""}
         ]
@@ -924,6 +951,3 @@ async def get_session_details(session_id: str):
         "logs": session.get("logs", [])[:20],  # Last 20 logs
         "chat_history": session.get("chat_history", [])
     }
-
-
-# === Run with: uvicorn api.main:app --reload ===
