@@ -46,7 +46,7 @@ settings = QCSettings()
 
 # Constants
 AGENT_NAME = "manufacturing_qc_agent"  # Used to identify sessions in shared MongoDB
-DEFAULT_LLM_MODEL = "gemini/gemini-2.0-flash"
+DEFAULT_LLM_MODEL = "gemini/gemini-2.5-flash"
 
 # Initialize storage (if enabled)
 mongo_store = None
