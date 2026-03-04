@@ -58,14 +58,14 @@ if STORAGE_AVAILABLE and settings.ENABLE_MONGODB:
         mongo_store = get_mongo_store()
         logger.info("MongoDB storage enabled")
     except Exception as e:
-        logger.warning(f"MongoDB not available: {e}")
+        logger.warning("MongoDB not available: %s", e)
 
 if STORAGE_AVAILABLE and settings.ENABLE_S3_STORAGE:
     try:
         s3_storage = get_s3_storage()
         logger.info("S3 storage enabled")
     except Exception as e:
-        logger.warning(f"S3 not available: {e}")
+        logger.warning("S3 not available: %s", e)
 
 # In-memory session store (fallback when MongoDB not available)
 
@@ -153,7 +153,7 @@ async def load_models_on_startup():
         # Load YOLOv8
         yolo_path = find_model_path()
         if yolo_path:
-            logger.info(f"Loading YOLOv8: {yolo_path}")
+            logger.info("Loading YOLOv8: %s", yolo_path)
             detector = get_detector(yolo_path)
             if detector.load_model():
                 logger.info("✅ YOLOv8 ready")
@@ -163,7 +163,7 @@ async def load_models_on_startup():
         # Load EfficientNet
         rgb_path = find_rgb_model_path()
         if rgb_path:
-            logger.info(f"Loading EfficientNet: {rgb_path}")
+            logger.info("Loading EfficientNet: %s", rgb_path)
             classifier = get_rgb_classifier(rgb_path)
             if classifier.load_model():
                 logger.info("✅ EfficientNet ready")
@@ -171,9 +171,9 @@ async def load_models_on_startup():
                 logger.warning("⚠️ EfficientNet failed to load")
                 
     except ImportError as e:
-        logger.warning(f"⚠️ Vision module not available: {e}")
+        logger.warning("⚠️ Vision module not available: %s", e)
     except Exception as e:
-        logger.error(f"❌ Error loading models: {e}")
+        logger.error("❌ Error loading models: %s", e)
 
 
 @app.post("/session/create", summary="Create a new session for a user", tags=["Session"])
@@ -194,7 +194,7 @@ async def create_session():
     # Register emitter for this session so stream endpoint can find it
     get_or_create_emitter(session_id)
     
-    logger.info(f"[{session_id}] Session created with emitter")
+    logger.info("[%s] Session created with emitter", session_id)
     
     return {
         "session_id": session_id,
@@ -236,7 +236,7 @@ Be concise and actionable."""
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        logger.warning(f"Failed to generate explanation: {e}")
+        logger.warning("Failed to generate explanation: %s", e)
         # Fallback to simple summary
         return f"Analysis complete: {defect_summary} {anomaly_summary}"
 
@@ -263,8 +263,8 @@ async def process_qc(
     temp_files = []  # Track temp files for cleanup
     input_files_meta = []  # Track file metadata for MongoDB
     
-    logger.info(f"[{session_id}] New request: {message}")
-    logger.info(f"[{session_id}] Files received: {len(files)}")
+    logger.info("[%s] New request: %s", session_id, message)
+    logger.info("[%s] Files received: %s", session_id, len(files))
     
     # Create MongoDB session if available (tagged with agent name)
     if mongo_store:
@@ -309,7 +309,7 @@ async def process_qc(
             s3_key = f"inputs/{session_id}/{file.filename}"
             upload_result = s3_storage.upload_file(temp_file.name, s3_key)
             if upload_result.get("success"):
-                logger.info(f"[{session_id}] Uploaded to S3: {s3_key}")
+                logger.info("[%s] Uploaded to S3: %s", session_id, s3_key)
                 documents[doc_id]["s3_key"] = s3_key
         
         # Track file metadata for MongoDB
@@ -320,7 +320,7 @@ async def process_qc(
             "size_bytes": os.path.getsize(temp_file.name)
         })
         
-        logger.info(f"[{session_id}] Stored {file_type}: {file.filename} -> {doc_id}")
+        logger.info("[%s] Stored %s: %s -> %s", session_id, file_type, file.filename, doc_id)
     
     # Update MongoDB with file metadata
     if mongo_store:
@@ -337,11 +337,11 @@ async def process_qc(
     
     try:
         # Create agent and process
-        logger.info(f"[{session_id}] Initializing QCAgent...")
+        logger.info("[%s] Initializing QCAgent...", session_id)
         agent = QCAgent(session_id=session_id)
         
-        logger.info(f"[{session_id}] Starting agent processing with {len(documents)} documents...")
-        logger.info(f"[{session_id}] Enhanced message: {enhanced_message[:200]}...")
+        logger.info("[%s] Starting agent processing with %s documents...", session_id, len(documents))
+        logger.info("[%s] Enhanced message: %s...", session_id, enhanced_message[:200])
         
         # Run in thread pool to avoid blocking event loop (enables real-time SSE streaming)
         import asyncio
@@ -351,7 +351,7 @@ async def process_qc(
             documents=documents
         )
         
-        logger.info(f"[{session_id}] Agent processing complete")
+        logger.info("[%s] Agent processing complete", session_id)
 
         
         # Extract results from agent response
@@ -394,9 +394,9 @@ async def process_qc(
                 from tools.recommend_optimization import recommend_optimization
                 state = {"results": {"analyze_image": image_results, "analyze_logs": log_results}}
                 rec_results = recommend_optimization(state=state)
-                logger.info(f"[{session_id}] Generated {len(rec_results.get('recommendations', []))} recommendations (direct call)")
+                logger.info("[%s] Generated %s recommendations (direct call)", session_id, len(rec_results.get('recommendations', [])))
             except Exception as e:
-                logger.warning(f"[{session_id}] Direct recommendation failed: {e}")
+                logger.warning("[%s] Direct recommendation failed: %s", session_id, e)
                 rec_results = {}
         recommendations = rec_results.get("recommendations", []) if rec_results.get("status") == "success" else []
         
@@ -434,7 +434,7 @@ async def process_qc(
             s3_key = f"outputs/{session_id}/results.json"
             upload_result = s3_storage.upload_json(final_results, s3_key)
             if upload_result.get("success"):
-                logger.info(f"[{session_id}] Uploaded results to S3: {s3_key}")
+                logger.info("[%s] Uploaded results to S3: %s", session_id, s3_key)
                 if mongo_store:
                     mongo_store.set_output(session_id, s3_key)
         
@@ -482,7 +482,7 @@ async def process_qc(
         return response
         
     except Exception as e:
-        logger.error(f"[{session_id}] Error: {str(e)}")
+        logger.error("[%s] Error: %s", session_id, e)
         raise HTTPException(status_code=500, detail=str(e)) from e
     
     finally:
@@ -498,7 +498,7 @@ async def process_qc(
 @app.post("/chat", summary="Continue conversation with the agent", tags=["Agent"])
 async def chat(message: str = Form(...), session_id: str = Form(...)):
     """Continue conversation about analysis results using session_id."""
-    logger.info(f"[{session_id}] Chat: {message}")
+    logger.info("[%s] Chat: %s", session_id, message)
     
     try:
         # Get stored session context
@@ -623,7 +623,7 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
                     history.append(new_exchange)
                     mongo_store.update_session(session_id, {"chat_history": history})
                 except Exception as e:
-                    logger.error(f"[{session_id}] Failed to update chat history: {e}")
+                    logger.error("[%s] Failed to update chat history: %s", session_id, e)
         
         return {
             "success": True,
@@ -638,8 +638,10 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
         }
         
     except Exception as e:
-        logger.error(f"[{session_id}] Chat error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("[%s] Chat error: %s", session_id, e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    finally:
+        remove_emitter(session_id)
 
 
 @app.delete("/session/{session_id}", summary="Clear/delete a session", tags=["Session"])
@@ -656,7 +658,7 @@ async def clear_session(session_id: str):
     
     **Safety**: Only deletes sessions belonging to this agent (manufacturing_qc_agent).
     """
-    logger.info(f"[{session_id}] Clearing session...")
+    logger.info("[%s] Clearing session...", session_id)
     
     deleted_from = []
     
@@ -668,14 +670,14 @@ async def clear_session(session_id: str):
             if session_doc:
                 session_agent = session_doc.get("metadata", {}).get("agent_name", "")
                 if session_agent and session_agent != AGENT_NAME:
-                    logger.warning(f"[{session_id}] Blocked: Session belongs to '{session_agent}', not '{AGENT_NAME}'")
+                    logger.warning("[%s] Blocked: Session belongs to '%s', not '%s'", session_id, session_agent, AGENT_NAME)
                     return {
                         "success": False,
                         "message": f"Cannot delete: Session belongs to a different agent ({session_agent})",
                         "session_id": session_id
                     }
         except Exception as e:
-            logger.warning(f"[{session_id}] Could not verify session owner: {e}")
+            logger.warning("[%s] Could not verify session owner: %s", session_id, e)
     
     # Clear from in-memory store
     if session_id in _session_store:
@@ -689,7 +691,7 @@ async def clear_session(session_id: str):
             if result:
                 deleted_from.append("mongodb")
         except Exception as e:
-            logger.warning(f"[{session_id}] MongoDB delete warning: {e}")
+            logger.warning("[%s] MongoDB delete warning: %s", session_id, e)
     
     # Clear from S3 (optional - delete uploaded files)
     if s3_storage:
@@ -715,7 +717,7 @@ async def clear_session(session_id: str):
             if c1 + c2 > 0:
                 deleted_from.append("s3")
         except Exception as e:
-            logger.warning(f"[{session_id}] S3 delete warning: {e}")
+            logger.warning("[%s] S3 delete warning: %s", session_id, e)
     
     if not deleted_from:
         return {
@@ -724,7 +726,7 @@ async def clear_session(session_id: str):
             "session_id": session_id
         }
     
-    logger.info(f"[{session_id}] Session cleared from: {', '.join(deleted_from)}")
+    logger.info("[%s] Session cleared from: %s", session_id, ', '.join(deleted_from))
     
     return {
         "success": True,
@@ -743,7 +745,7 @@ async def clear_chat_history(session_id: str):
     
     **Safety**: Only clears chat for sessions belonging to this agent.
     """
-    logger.info(f"[{session_id}] Clearing chat history...")
+    logger.info("[%s] Clearing chat history...", session_id)
     
     # === AGENT VALIDATION ===
     if mongo_store:
@@ -752,14 +754,14 @@ async def clear_chat_history(session_id: str):
             if session_doc:
                 session_agent = session_doc.get("metadata", {}).get("agent_name", "")
                 if session_agent and session_agent != AGENT_NAME:
-                    logger.warning(f"[{session_id}] Blocked: Session belongs to '{session_agent}'")
+                    logger.warning("[%s] Blocked: Session belongs to '%s'", session_id, session_agent)
                     return {
                         "success": False,
                         "message": f"Cannot modify: Session belongs to a different agent ({session_agent})",
                         "session_id": session_id
                     }
         except Exception as e:
-            logger.warning(f"[{session_id}] Could not verify session owner: {e}")
+            logger.warning("[%s] Could not verify session owner: %s", session_id, e)
     
     # Clear from in-memory store
     if session_id in _session_store:
@@ -780,7 +782,7 @@ async def clear_chat_history(session_id: str):
                 "session_id": session_id
             }
         except Exception as e:
-            logger.error(f"[{session_id}] Failed to clear chat history: {e}")
+            logger.error("[%s] Failed to clear chat history: %s", session_id, e)
     
     return {
         "success": False,
