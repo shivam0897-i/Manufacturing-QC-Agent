@@ -268,7 +268,7 @@ def analyze_image(
                                 use_efficientnet = True
                             elif detector:
                                 use_yolo = True
-                        except:
+                        except Exception:
                             # Fallback to YOLO if detection fails
                             use_yolo = detector is not None
                     else:

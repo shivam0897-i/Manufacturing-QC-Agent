@@ -355,9 +355,13 @@ def recommend_optimization(
     """
     results = state.get("results", {}) if state else {}
     
-    # Extract defects from analyze_image results
+    # Extract defects from analyze_image results (prefix-matching for v1.0 dynamic keys)
     defects = []
-    image_result = results.get("analyze_image", {})
+    image_result = {}
+    for key, val in results.items():
+        if key.startswith("analyze_image"):
+            image_result = val
+            break
     if isinstance(image_result, dict) and image_result.get("status") == "success":
         if "results" in image_result and isinstance(image_result["results"], list):
             for res in image_result["results"]:
@@ -366,9 +370,13 @@ def recommend_optimization(
         elif "defects" in image_result:
             defects = image_result.get("defects", [])
     
-    # Extract anomalies from analyze_logs results  
+    # Extract anomalies from analyze_logs results (prefix-matching for v1.0 dynamic keys)
     anomalies = []
-    log_result = results.get("analyze_logs", {})
+    log_result = {}
+    for key, val in results.items():
+        if key.startswith("analyze_logs"):
+            log_result = val
+            break
     if isinstance(log_result, dict) and log_result.get("status") == "success":
         anomalies = log_result.get("anomalies", [])
     

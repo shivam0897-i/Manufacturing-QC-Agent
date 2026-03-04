@@ -185,19 +185,31 @@ def generate_report(
     recommendations = state.get("recommendations", [])
     results = state.get("results", {})
     
-    # Also check for data in results
-    if not defects and "analyze_image" in results:
-        img_result = results.get("analyze_image", {})
+    # Also check for data in results (prefix-matching for v1.0 dynamic keys)
+    if not defects:
+        img_result = {}
+        for key, val in results.items():
+            if key.startswith("analyze_image"):
+                img_result = val
+                break
         if isinstance(img_result, dict):
             defects = img_result.get("defects", [])
     
-    if not anomalies and "analyze_logs" in results:
-        log_result = results.get("analyze_logs", {})
+    if not anomalies:
+        log_result = {}
+        for key, val in results.items():
+            if key.startswith("analyze_logs"):
+                log_result = val
+                break
         if isinstance(log_result, dict):
             anomalies = log_result.get("anomalies", [])
     
-    if not recommendations and "recommend_optimization" in results:
-        rec_result = results.get("recommend_optimization", {})
+    if not recommendations:
+        rec_result = {}
+        for key, val in results.items():
+            if key.startswith("recommend_optimization"):
+                rec_result = val
+                break
         if isinstance(rec_result, dict):
             recommendations = rec_result.get("recommendations", [])
     

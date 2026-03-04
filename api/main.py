@@ -9,7 +9,7 @@ Uses LLM-based planning and tool calling.
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from typing import Dict, Any, Optional, List, TypedDict
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import os
 import shutil
@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from agent import QCAgent
+from point9_platform.observability.emitter import remove_emitter
 from point9_platform.health import create_health_router
 from point9_platform.observability import setup_logging, get_logger
 from litellm import completion
@@ -356,8 +357,12 @@ async def process_qc(
         # Extract results from agent response
         agent_results = result.get("results", {})
         
-        # Get image analysis results
-        image_results = agent_results.get("analyze_image", {})
+        # Get image analysis results (prefix-matching for v1.0 dynamic keys)
+        image_results = {}
+        for key, val in agent_results.items():
+            if key.startswith("analyze_image"):
+                image_results = val
+                break
         defects = []
         if image_results.get("status") == "success":
             # Handle Batch Format
@@ -369,12 +374,20 @@ async def process_qc(
             elif "defects" in image_results:
                 defects = image_results.get("defects", [])
         
-        # Get log analysis results  
-        log_results = agent_results.get("analyze_logs", {})
+        # Get log analysis results (prefix-matching for v1.0 dynamic keys)
+        log_results = {}
+        for key, val in agent_results.items():
+            if key.startswith("analyze_logs"):
+                log_results = val
+                break
         anomalies = log_results.get("anomalies", []) if log_results.get("status") == "success" else []
         
-        # Get recommendations - if agent didn't call it, call directly
-        rec_results = agent_results.get("recommend_optimization", {})
+        # Get recommendations - if agent didn't call it, call directly (prefix-matching)
+        rec_results = {}
+        for key, val in agent_results.items():
+            if key.startswith("recommend_optimization"):
+                rec_results = val
+                break
         if not rec_results or rec_results.get("status") != "success":
             # Agent skipped recommend_optimization - call it directly
             try:
@@ -470,15 +483,16 @@ async def process_qc(
         
     except Exception as e:
         logger.error(f"[{session_id}] Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     
     finally:
         # Cleanup temp files (always runs)
         for temp_path in temp_files:
             try:
                 os.unlink(temp_path)
-            except:
+            except Exception:
                 pass
+        remove_emitter(session_id)
 
 
 @app.post("/chat", summary="Continue conversation with the agent", tags=["Agent"])
@@ -597,7 +611,7 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
                     {"session_id": session_id},
                     {
                         "$push": {"chat_history": new_exchange},
-                        "$set": {"updated_at": datetime.utcnow()}
+                        "$set": {"updated_at": datetime.now(timezone.utc)}
                     }
                 )
             else:

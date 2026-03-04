@@ -51,7 +51,7 @@ class QCAgent(BaseAgent[QCAgentState]):
         return QCAgentState(
             messages=[],
             session_id=session_id,
-            documents={},
+            documents=None,
             results={},
             plan=[],
             current_step=0,

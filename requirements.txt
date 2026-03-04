@@ -12,6 +12,7 @@ litellm>=1.0.0
 
 # === Agent Platform ===
 git+https://github.com/shivam0897-i/agent-platform.git
+langgraph>=0.2.0
 boto3>=1.26.0  # Required for S3 storage
 pymongo>=4.3.0 # Required for MongoDB storage
 
