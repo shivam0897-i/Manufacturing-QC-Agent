@@ -588,7 +588,7 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
         
         # Use LLM to answer question with FULL context + history
         response = completion(
-            model=DEFAULT_LLM_MODEL,
+            model=settings.DEFAULT_LLM_MODEL,
             messages=messages,
             max_tokens=2000  # Increased for detailed responses
         )
