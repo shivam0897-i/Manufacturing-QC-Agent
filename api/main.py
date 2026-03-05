@@ -47,7 +47,6 @@ settings = QCSettings()
 
 # Constants
 AGENT_NAME = "manufacturing_qc_agent"  # Used to identify sessions in shared MongoDB
-DEFAULT_LLM_MODEL = "gemini/gemini-2.5-flash"
 
 # Initialize storage (if enabled)
 mongo_store = None
@@ -230,7 +229,7 @@ Be concise and actionable."""
 
     try:
         response = completion(
-            model=DEFAULT_LLM_MODEL,
+            model=settings.DEFAULT_LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=150
         )

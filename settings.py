@@ -16,6 +16,9 @@ class QCSettings(UserSettings):
     Extends UserSettings with QC-specific configuration.
     """
     
+    # === MODEL ===
+    DEFAULT_LLM_MODEL: str = "gemini/gemini-2.5-pro"
+    
     # === AGENT IDENTITY ===
     AGENT_NAME: str = "Manufacturing QC Agent"
     AGENT_DESCRIPTION: str = "AI agent for solar module defect detection and process optimization"
