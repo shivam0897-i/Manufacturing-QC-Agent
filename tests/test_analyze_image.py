@@ -6,6 +6,7 @@ from tools.analyze_image import _resolve_confidence_threshold
 
 class AnalyzeImageTests(TestCase):
     def test_missing_confidence_threshold_uses_configured_default(self):
+        self.assertEqual(0.5, QCSettings().CONFIDENCE_THRESHOLD)
         self.assertEqual(
             QCSettings().CONFIDENCE_THRESHOLD,
             _resolve_confidence_threshold(None),

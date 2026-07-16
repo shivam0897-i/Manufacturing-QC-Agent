@@ -15,7 +15,7 @@ LLM_TEMPERATURE: 0.1
 LLM_MAX_TOKENS: 4096
 
 # Defect Detection Settings
-CONFIDENCE_THRESHOLD: 0.85
+CONFIDENCE_THRESHOLD: 0.5
 FALSE_POSITIVE_TARGET: 0.05
 
 # Defect Categories (PVEL-AD - 12 classes matching trained model)

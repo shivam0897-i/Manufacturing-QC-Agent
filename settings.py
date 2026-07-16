@@ -25,7 +25,7 @@ class QCSettings(UserSettings):
     AGENT_DESCRIPTION: str = "AI agent for solar module defect detection and process optimization"
     
     # === DEFECT DETECTION ===
-    CONFIDENCE_THRESHOLD: float = 0.85
+    CONFIDENCE_THRESHOLD: float = 0.5
     FALSE_POSITIVE_TARGET: float = 0.05
     
     DEFECT_CATEGORIES: List[str] = [

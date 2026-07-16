@@ -6,8 +6,7 @@ YOLOv8-based defect detection for solar module EL images.
 """
 
 import os
-from typing import Dict, Any, List, Optional, Tuple
-from pathlib import Path
+from typing import Dict, Any, List, Optional
 
 # Defect class names (must match dataset.yaml)
 DEFECT_CLASSES = [
@@ -57,6 +56,83 @@ class DefectDetector:
         self.confidence_threshold = confidence_threshold
         self.model = None
         self._loaded = False
+
+    def _defects_from_results(self, results) -> List[Dict[str, Any]]:
+        defects = []
+
+        for result in results:
+            boxes = result.boxes
+            if boxes is None:
+                continue
+
+            for i in range(len(boxes)):
+                cls_id = int(boxes.cls[i].item())
+                confidence = float(boxes.conf[i].item())
+                if confidence < self.confidence_threshold:
+                    continue
+
+                bbox = boxes.xyxy[i].tolist()
+                class_name = DEFECT_CLASSES[cls_id] if cls_id < len(DEFECT_CLASSES) else f"class_{cls_id}"
+
+                defects.append({
+                    "defect_type": class_name,
+                    "class_id": cls_id,
+                    "confidence": round(confidence, 3),
+                    "bounding_box": {
+                        "x1": round(bbox[0], 1),
+                        "y1": round(bbox[1], 1),
+                        "x2": round(bbox[2], 1),
+                        "y2": round(bbox[3], 1),
+                        "width": round(bbox[2] - bbox[0], 1),
+                        "height": round(bbox[3] - bbox[1], 1)
+                    },
+                    "severity": SEVERITY_MAP.get(class_name, "medium")
+                })
+
+        defects.sort(key=lambda x: x["confidence"], reverse=True)
+        return defects
+
+    @staticmethod
+    def _severity_counts(defects: List[Dict[str, Any]]) -> Dict[str, int]:
+        severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        for defect in defects:
+            severity = defect.get("severity", "medium")
+            if severity in severity_counts:
+                severity_counts[severity] += 1
+        return severity_counts
+
+    @staticmethod
+    def _save_annotated_image(image_path: str, annotated_path: str, defects: List[Dict[str, Any]]) -> None:
+        from PIL import Image, ImageDraw, ImageFont
+
+        image = Image.open(image_path).convert("RGB")
+        draw = ImageDraw.Draw(image)
+
+        try:
+            font = ImageFont.truetype("arial.ttf", 24)
+        except Exception:
+            font = ImageFont.load_default()
+
+        for defect in defects:
+            bbox = defect.get("bounding_box", {})
+            x1 = int(round(bbox.get("x1", 0)))
+            y1 = int(round(bbox.get("y1", 0)))
+            x2 = int(round(bbox.get("x2", 0)))
+            y2 = int(round(bbox.get("y2", 0)))
+
+            label = f"{defect.get('defect_type', 'defect')} {defect.get('confidence', 0):.2f}"
+            color = (255, 255, 255)
+            for offset in range(3):
+                draw.rectangle([x1 - offset, y1 - offset, x2 + offset, y2 + offset], outline=color)
+
+            text_box = draw.textbbox((x1, y1), label, font=font)
+            text_width = text_box[2] - text_box[0]
+            text_height = text_box[3] - text_box[1]
+            label_y = max(0, y1 - text_height - 6)
+            draw.rectangle([x1, label_y, x1 + text_width + 6, label_y + text_height + 6], fill=color)
+            draw.text((x1 + 3, label_y + 3), label, fill=(0, 0, 0), font=font)
+
+        image.save(annotated_path, quality=95)
         
     def load_model(self) -> bool:
         """Load the YOLOv8 model."""
@@ -103,47 +179,8 @@ class DefectDetector:
         try:
             # Run inference
             results = self.model(image_path, conf=self.confidence_threshold, verbose=False)
-            
-            # Process results
-            defects = []
-            for result in results:
-                boxes = result.boxes
-                if boxes is None:
-                    continue
-                    
-                for i in range(len(boxes)):
-                    # Get class and confidence
-                    cls_id = int(boxes.cls[i].item())
-                    confidence = float(boxes.conf[i].item())
-                    
-                    # Get bounding box (xyxy format)
-                    bbox = boxes.xyxy[i].tolist()
-                    
-                    # Get class name
-                    class_name = DEFECT_CLASSES[cls_id] if cls_id < len(DEFECT_CLASSES) else f"class_{cls_id}"
-                    
-                    defects.append({
-                        "defect_type": class_name,
-                        "class_id": cls_id,
-                        "confidence": round(confidence, 3),
-                        "bounding_box": {
-                            "x1": round(bbox[0], 1),
-                            "y1": round(bbox[1], 1),
-                            "x2": round(bbox[2], 1),
-                            "y2": round(bbox[3], 1),
-                            "width": round(bbox[2] - bbox[0], 1),
-                            "height": round(bbox[3] - bbox[1], 1)
-                        },
-                        "severity": SEVERITY_MAP.get(class_name, "medium")
-                    })
-            
-            # Sort by confidence
-            defects.sort(key=lambda x: x["confidence"], reverse=True)
-            
-            # Count by severity
-            severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-            for d in defects:
-                severity_counts[d["severity"]] += 1
+            defects = self._defects_from_results(results)
+            severity_counts = self._severity_counts(defects)
             
             return {
                 "status": "success",
@@ -188,40 +225,8 @@ class DefectDetector:
         try:
             # Run inference
             results = self.model(image_path, conf=self.confidence_threshold, verbose=False)
-            
-            # Get detection results (same as detect() method)
-            defects = []
-            for result in results:
-                boxes = result.boxes
-                if boxes is None:
-                    continue
-                    
-                for i in range(len(boxes)):
-                    cls_id = int(boxes.cls[i].item())
-                    confidence = float(boxes.conf[i].item())
-                    bbox = boxes.xyxy[i].tolist()
-                    class_name = DEFECT_CLASSES[cls_id] if cls_id < len(DEFECT_CLASSES) else f"class_{cls_id}"
-                    
-                    defects.append({
-                        "defect_type": class_name,
-                        "class_id": cls_id,
-                        "confidence": round(confidence, 3),
-                        "bounding_box": {
-                            "x1": round(bbox[0], 1),
-                            "y1": round(bbox[1], 1),
-                            "x2": round(bbox[2], 1),
-                            "y2": round(bbox[3], 1),
-                            "width": round(bbox[2] - bbox[0], 1),
-                            "height": round(bbox[3] - bbox[1], 1)
-                        },
-                        "severity": SEVERITY_MAP.get(class_name, "medium")
-                    })
-            
-            defects.sort(key=lambda x: x["confidence"], reverse=True)
-            
-            severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-            for d in defects:
-                severity_counts[d["severity"]] += 1
+            defects = self._defects_from_results(results)
+            severity_counts = self._severity_counts(defects)
             
             # Save annotated image
             import tempfile
@@ -236,23 +241,7 @@ class DefectDetector:
             annotated_filename = f"{input_filename}_annotated.jpg"
             annotated_path = os.path.join(output_dir, annotated_filename)
             
-            # Use YOLOv8's built-in plot() to draw boxes
-            # Note: plot() returns BGR format (OpenCV convention)
-            annotated_img = None
-            for result in results:
-                annotated_img = result.plot()  # Returns numpy array (BGR) with boxes drawn
-            
-            if annotated_img is not None:
-                # Save using cv2 (preferred - keeps BGR format) or PIL (needs BGR→RGB)
-                try:
-                    import cv2
-                    cv2.imwrite(annotated_path, annotated_img)
-                except ImportError:
-                    # Fallback to PIL - must convert BGR to RGB
-                    from PIL import Image
-                    import numpy as np
-                    rgb_img = annotated_img[:, :, ::-1]  # BGR to RGB
-                    Image.fromarray(rgb_img).save(annotated_path)
+            self._save_annotated_image(image_path, annotated_path, defects)
             
             return {
                 "status": "success",
