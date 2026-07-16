@@ -262,19 +262,12 @@ def is_grayscale(image_path: str) -> bool:
             return True
         
         if img.mode == 'RGB':
-            # Check if R == G == B for all pixels (sample check)
             img_array = np.array(img)
-            # Sample 100 random pixels
-            h, w = img_array.shape[:2]
-            sample_size = min(100, h * w)
-            indices = np.random.choice(h * w, sample_size, replace=False)
-            
-            for idx in indices:
-                y, x = divmod(idx, w)
-                r, g, b = img_array[y, x]
-                if not (r == g == b):
-                    return False
-            return True
+            channel_spread = img_array.max(axis=2) - img_array.min(axis=2)
+            colored_ratio = np.count_nonzero(channel_spread > 10) / channel_spread.size
+            mean_spread = float(channel_spread.mean())
+
+            return colored_ratio <= 0.05 and mean_spread <= 5.0
         
         return False
     except Exception:
