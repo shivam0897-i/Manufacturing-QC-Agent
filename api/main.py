@@ -34,8 +34,7 @@ from observability.mlflow import (
     get_mlflow_status,
     set_span_outputs,
     setup_mlflow_observability,
-    trace_span,
-    update_current_trace,
+    trace_request,
 )
 from tools.analyze_image import find_model_path, find_rgb_model_path
 from tools.recommend_optimization import recommend_optimization
@@ -513,13 +512,12 @@ async def process_qc(
             }
             for doc_id, info in documents.items()
         ]
-        with trace_span(
+        with trace_request(
             "qc.process",
-            span_type="CHAIN",
+            endpoint="/process",
+            session_id=session_id,
+            agent=AGENT_NAME,
             attributes={
-                "agent": AGENT_NAME,
-                "endpoint": "/process",
-                "session_id": session_id,
                 "documents_count": len(documents),
             },
             inputs={
@@ -527,11 +525,6 @@ async def process_qc(
                 "documents": document_summary,
             },
         ) as process_span:
-            update_current_trace(
-                tags={"agent": AGENT_NAME, "endpoint": "/process"},
-                metadata={"session_id": session_id},
-                client_request_id=session_id,
-            )
             result = await asyncio.to_thread(
                 agent.process,
                 message=enhanced_message,
@@ -615,7 +608,28 @@ async def process_qc(
                 mongo_store.add_log(session_id, "recommend_optimization", f"Generated {len(recommendations)} recommendations")
         
         # Generate LLM explanation for quick review
-        explanation = generate_explanation(defects, anomalies)
+        with trace_request(
+            "qc.process.explanation",
+            endpoint="/process",
+            session_id=session_id,
+            agent=AGENT_NAME,
+            attributes={
+                "defects_count": len(defects),
+                "anomalies_count": len(anomalies),
+            },
+            inputs={
+                "defects_count": len(defects),
+                "anomalies_count": len(anomalies),
+            },
+        ) as explanation_span:
+            explanation = generate_explanation(defects, anomalies)
+            set_span_outputs(
+                explanation_span,
+                {
+                    "explanation_length": len(explanation),
+                    "used_fallback": explanation.startswith("Analysis complete:"),
+                },
+            )
         
         # Build final results
         final_results = {
@@ -681,14 +695,11 @@ async def process_qc(
         if result.get("error"):
             response["error"] = result["error"]
 
-        with trace_span(
+        with trace_request(
             "qc.process.summary",
-            span_type="CHAIN",
-            attributes={
-                "agent": AGENT_NAME,
-                "endpoint": "/process",
-                "session_id": session_id,
-            },
+            endpoint="/process",
+            session_id=session_id,
+            agent=AGENT_NAME,
             inputs={"documents_processed": len(documents)},
         ) as summary_span:
             set_span_outputs(
@@ -808,22 +819,16 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
         messages.append({"role": "user", "content": message})
         
         # Use LLM to answer question with FULL context + history
-        with trace_span(
+        with trace_request(
             "qc.chat",
-            span_type="CHAIN",
+            endpoint="/chat",
+            session_id=session_id,
+            agent=AGENT_NAME,
             attributes={
-                "agent": AGENT_NAME,
-                "endpoint": "/chat",
-                "session_id": session_id,
                 "history_count": len(chat_history),
             },
             inputs={"message_length": len(message or "")},
         ) as chat_span:
-            update_current_trace(
-                tags={"agent": AGENT_NAME, "endpoint": "/chat"},
-                metadata={"session_id": session_id},
-                client_request_id=session_id,
-            )
             response = completion(
                 model=settings.DEFAULT_LLM_MODEL,
                 messages=messages,

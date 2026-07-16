@@ -225,6 +225,107 @@ class MlflowObservabilityTests(TestCase):
             fake_mlflow.trace_updates,
         )
 
+    def test_sanitize_trace_payload_redacts_secrets_and_summarizes_nested_content(self):
+        payload = {
+            "message": "Analyze " + ("x" * 300),
+            "api_key": "secret-value",
+            "documents": [
+                {"filename": "img000005.jpg", "path": "C:/tmp/raw-image.jpg", "type": "image"},
+                {"filename": "run.csv", "s3_key": "inputs/session/run.csv", "type": "log"},
+            ],
+            "raw_results": {"tool": "large internal result"},
+        }
+
+        sanitized = mlflow_observability.sanitize_trace_payload(payload)
+
+        self.assertEqual("[redacted]", sanitized["api_key"])
+        self.assertEqual("[omitted]", sanitized["raw_results"])
+        self.assertLessEqual(len(sanitized["message"]), 220)
+        self.assertEqual(
+            [
+                {"filename": "img000005.jpg", "type": "image"},
+                {"filename": "run.csv", "type": "log"},
+            ],
+            sanitized["documents"],
+        )
+
+    def test_sanitize_trace_payload_preserves_token_usage_metrics(self):
+        sanitized = mlflow_observability.sanitize_trace_payload(
+            {
+                "prompt_tokens": 56,
+                "completion_tokens": 147,
+                "total_tokens": 203,
+                "access_token": "secret-value",
+            }
+        )
+
+        self.assertEqual(56, sanitized["prompt_tokens"])
+        self.assertEqual(147, sanitized["completion_tokens"])
+        self.assertEqual(203, sanitized["total_tokens"])
+        self.assertEqual("[redacted]", sanitized["access_token"])
+
+    def test_trace_request_applies_standard_tags_and_sanitized_io(self):
+        fake_mlflow = _FakeMLflow()
+        _install_fake_mlflow(fake_mlflow)
+        mlflow_observability.setup_mlflow_observability(
+            SimpleNamespace(
+                ENABLE_MLFLOW=True,
+                MLFLOW_TRACKING_URI="http://mlflow.local:5000",
+                MLFLOW_EXPERIMENT_NAME="manufacturing-qc-agent",
+            ),
+            logger=_FakeLogger(),
+        )
+
+        with mlflow_observability.trace_request(
+            name="qc.process",
+            endpoint="/process",
+            session_id="session-123",
+            agent="manufacturing_qc_agent",
+            attributes={"documents_count": 1},
+            inputs={"message": "Analyze", "token": "secret"},
+        ) as span:
+            mlflow_observability.set_span_outputs(
+                span,
+                {"success": True, "raw_results": {"thought": "internal"}},
+            )
+
+        self.assertEqual(
+            {
+                "name": "qc.process",
+                "span_type": "CHAIN",
+                "attributes": {
+                    "agent": "manufacturing_qc_agent",
+                    "endpoint": "/process",
+                    "session_id": "session-123",
+                    "documents_count": 1,
+                },
+            },
+            fake_mlflow.start_span_calls[0],
+        )
+        self.assertEqual({"message": "Analyze", "token": "[redacted]"}, fake_mlflow.next_span.inputs)
+        self.assertEqual(
+            {"success": True, "raw_results": "[omitted]"},
+            fake_mlflow.next_span.outputs,
+        )
+        self.assertEqual(
+            [
+                {
+                    "tags": {
+                        "agent": "manufacturing_qc_agent",
+                        "endpoint": "/process",
+                        "session_id": "session-123",
+                    },
+                    "metadata": {
+                        "session_id": "session-123",
+                        "endpoint": "/process",
+                        "agent": "manufacturing_qc_agent",
+                    },
+                    "client_request_id": "session-123",
+                }
+            ],
+            fake_mlflow.trace_updates,
+        )
+
     def test_trace_span_noops_when_mlflow_span_start_fails(self):
         fake_mlflow = _FailingSpanMLflow()
         _install_fake_mlflow(fake_mlflow)
