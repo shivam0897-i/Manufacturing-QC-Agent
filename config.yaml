@@ -10,6 +10,7 @@ AGENT_DESCRIPTION: AI agent for solar module defect detection and process optimi
 # LLM Configuration
 DEFAULT_LLM_MODEL: gemini/gemini-2.5-pro
 DEFAULT_VISION_MODEL: gemini/gemini-2.5-pro
+RECOMMENDATION_LLM_MODEL: gemini/gemini-2.5-flash
 LLM_TEMPERATURE: 0.1
 LLM_MAX_TOKENS: 4096
 

@@ -147,6 +147,17 @@ def _safe_path_component(value: str) -> str:
     return safe or "unknown"
 
 
+def _normalize_session_id(session_id: Optional[str]) -> str:
+    if not session_id:
+        return str(uuid.uuid4())
+
+    normalized = session_id.strip()
+    if normalized.lower() in {"", "string", "null", "none"}:
+        return str(uuid.uuid4())
+
+    return normalized
+
+
 def _local_annotated_artifact_path(session_id: str, filename: str) -> Path:
     safe_session = _safe_path_component(session_id)
     safe_filename = _safe_path_component(Path(filename).name)
@@ -330,11 +341,14 @@ Be concise and actionable."""
             messages=[{"role": "user", "content": prompt}],
             max_tokens=150
         )
-        return response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        if content and content.strip():
+            return content.strip()
+        return f"Analysis complete: {defect_summary} {anomaly_summary}".strip()
     except Exception as e:
         logger.warning("Failed to generate explanation: %s", e)
         # Fallback to simple summary
-        return f"Analysis complete: {defect_summary} {anomaly_summary}"
+        return f"Analysis complete: {defect_summary} {anomaly_summary}".strip()
 
 
 @app.post("/process", summary="Analyze files using AI agent with planning", tags=["Agent"])
@@ -351,9 +365,8 @@ async def process_qc(
     - **session_id**: Optional - use from /start for streaming
     - **files**: Upload images (.jpg, .png) or logs (.csv, .txt)
     """
-    # Use provided session_id or generate new one
-    if not session_id:
-        session_id = str(uuid.uuid4())
+    # Use provided session_id or generate new one. Swagger UI can submit "string".
+    session_id = _normalize_session_id(session_id)
     
     documents = {}
     temp_files = []  # Track temp files for cleanup

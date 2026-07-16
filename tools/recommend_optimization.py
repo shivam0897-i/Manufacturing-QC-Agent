@@ -312,8 +312,10 @@ def generate_llm_recommendations(defects: List[Dict], rules_context: str) -> Dic
             {"role": "user", "content": user_prompt}
         ]
         
+        from settings import QCSettings
+
         response = completion(
-            model="gemini/gemini-2.0-flash",
+            model=QCSettings().RECOMMENDATION_LLM_MODEL,
             messages=messages,
             temperature=0.2,
             max_tokens=2000

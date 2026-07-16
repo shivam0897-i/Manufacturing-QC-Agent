@@ -18,6 +18,7 @@ class QCSettings(UserSettings):
     
     # === MODEL ===
     DEFAULT_LLM_MODEL: str = "gemini/gemini-2.5-pro"
+    RECOMMENDATION_LLM_MODEL: str = "gemini/gemini-2.5-flash"
     
     # === AGENT IDENTITY ===
     AGENT_NAME: str = "Manufacturing QC Agent"

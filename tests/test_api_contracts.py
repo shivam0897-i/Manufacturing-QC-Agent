@@ -2,6 +2,9 @@ import os
 import tempfile
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
+from types import SimpleNamespace
+from uuid import UUID
 
 os.environ.setdefault("QC_ENABLE_MONGODB", "False")
 os.environ.setdefault("QC_ENABLE_S3_STORAGE", "False")
@@ -59,3 +62,25 @@ class ApiContractTests(TestCase):
                 self.assertEqual(b"annotated-image", response.content)
             finally:
                 api_main.LOCAL_OUTPUTS_DIR = previous_outputs_dir
+
+    def test_swagger_placeholder_session_id_is_replaced_with_uuid(self):
+        session_id = api_main._normalize_session_id("string")
+
+        self.assertNotEqual("string", session_id)
+        UUID(session_id)
+
+    def test_empty_explanation_llm_content_uses_fallback_without_warning(self):
+        response = SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=None))]
+        )
+
+        with patch("api.main.completion", return_value=response), patch.object(
+            api_main.logger, "warning"
+        ) as warning:
+            explanation = api_main.generate_explanation(
+                [{"defect_type": "crack", "severity": "high"}],
+                [],
+            )
+
+        self.assertIn("Found 1 defect(s): crack", explanation)
+        warning.assert_not_called()
