@@ -7,11 +7,13 @@ Uses LLM-based planning and tool calling.
 """
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
-from fastapi.responses import StreamingResponse
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import FileResponse, StreamingResponse
 from typing import Dict, Any, Optional, List, TypedDict
 from datetime import datetime, timezone
 import uuid
 import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -47,6 +49,7 @@ settings = QCSettings()
 
 # Constants
 AGENT_NAME = "manufacturing_qc_agent"  # Used to identify sessions in shared MongoDB
+LOCAL_OUTPUTS_DIR = Path("outputs")
 
 # Initialize storage (if enabled)
 mongo_store = None
@@ -136,8 +139,102 @@ app = FastAPI(
     openapi_tags=tags_metadata
 )
 
+
+def _safe_path_component(value: str) -> str:
+    """Return a filesystem-safe component while keeping readable IDs."""
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", str(value or ""))
+    safe = safe.strip(" .")
+    return safe or "unknown"
+
+
+def _local_annotated_artifact_path(session_id: str, filename: str) -> Path:
+    safe_session = _safe_path_component(session_id)
+    safe_filename = _safe_path_component(Path(filename).name)
+    return LOCAL_OUTPUTS_DIR / safe_session / "annotated" / safe_filename
+
+
+def _publish_local_annotated_artifacts(image_results: Dict[str, Any], session_id: str) -> None:
+    """Convert container-local annotation paths into client-fetchable URLs."""
+    if not isinstance(image_results, dict):
+        return
+
+    results = image_results.get("results", [])
+    if not isinstance(results, list):
+        return
+
+    for item in results:
+        if not isinstance(item, dict) or item.get("annotated_image_url"):
+            continue
+
+        local_path = item.get("annotated_image_path")
+        if not local_path:
+            continue
+
+        source = Path(local_path)
+        if source.exists() and source.is_file():
+            destination = _local_annotated_artifact_path(session_id, source.name)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if source.resolve() != destination.resolve():
+                shutil.copy2(source, destination)
+
+            safe_session = _safe_path_component(session_id)
+            item["annotated_image_url"] = f"/outputs/{safe_session}/annotated/{destination.name}"
+
+            try:
+                temp_root = Path(tempfile.gettempdir()).resolve()
+                source_parent = source.parent.resolve()
+                if source_parent.name.startswith("qc_annotated_") and temp_root in source_parent.parents:
+                    shutil.rmtree(source_parent, ignore_errors=True)
+            except Exception:
+                pass
+
+        item.pop("annotated_image_path", None)
+
+
+def _patch_upload_file_schema(openapi_schema: Dict[str, Any]) -> None:
+    """Make Swagger UI render UploadFile lists as file pickers under OpenAPI 3.1."""
+    components = openapi_schema.get("components", {}).get("schemas", {})
+    for schema in components.values():
+        properties = schema.get("properties", {}) if isinstance(schema, dict) else {}
+        files_schema = properties.get("files")
+        if not isinstance(files_schema, dict) or files_schema.get("type") != "array":
+            continue
+
+        items = files_schema.setdefault("items", {})
+        if items.get("type") == "string":
+            items["format"] = "binary"
+
+
+def custom_openapi() -> Dict[str, Any]:
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        openapi_version=app.openapi_version,
+        description=app.description,
+        routes=app.routes,
+        tags=tags_metadata,
+    )
+    _patch_upload_file_schema(openapi_schema)
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
+
 # Include platform health endpoints
 app.include_router(create_health_router())
+
+
+@app.get("/outputs/{session_id}/annotated/{filename}", include_in_schema=False)
+async def get_annotated_output(session_id: str, filename: str):
+    """Serve locally stored annotated images when S3 is not configured."""
+    output_path = _local_annotated_artifact_path(session_id, filename)
+    if not output_path.exists() or not output_path.is_file():
+        raise HTTPException(status_code=404, detail="Annotated image not found")
+    return FileResponse(output_path)
 
 
 # === EAGER MODEL LOADING ===
@@ -398,6 +495,10 @@ async def process_qc(
                 logger.warning("[%s] Direct recommendation failed: %s", session_id, e)
                 rec_results = {}
         recommendations = rec_results.get("recommendations", []) if rec_results.get("status") == "success" else []
+
+        # Convert container-local annotation files into client-accessible URLs.
+        if image_results:
+            _publish_local_annotated_artifacts(image_results, session_id)
         
         # Store intermediate results in MongoDB
         if mongo_store:
