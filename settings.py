@@ -75,6 +75,11 @@ class QCSettings(UserSettings):
     # === STORAGE FLAGS ===
     ENABLE_S3_STORAGE: bool = True  # Set to True when S3 is configured
     ENABLE_MONGODB: bool = True  # Set to True when MongoDB is configured
+
+    # === OBSERVABILITY ===
+    ENABLE_MLFLOW: bool = False
+    MLFLOW_TRACKING_URI: Optional[str] = None
+    MLFLOW_EXPERIMENT_NAME: str = "manufacturing-qc-agent"
     
     class Config(UserSettings.Config):
         env_prefix = "QC_"

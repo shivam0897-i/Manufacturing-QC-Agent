@@ -14,13 +14,14 @@ Classes:
 """
 
 import os
-from typing import Dict, Any, List, Optional
+import tempfile
+from typing import Dict, Any, Optional
 from pathlib import Path
 
 import torch
 import torch.nn as nn
 from torchvision import transforms, models
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 
 
@@ -189,9 +190,6 @@ class RGBClassifier:
             return result
         
         try:
-            import tempfile
-            from PIL import Image, ImageDraw, ImageFont
-            
             if output_dir is None:
                 output_dir = tempfile.gettempdir()
             
@@ -218,7 +216,7 @@ class RGBClassifier:
             # Draw label background
             try:
                 font = ImageFont.truetype("arial.ttf", 24)
-            except:
+            except Exception:
                 font = ImageFont.load_default()
             
             bbox = draw.textbbox((10, 10), label, font=font)
@@ -279,5 +277,5 @@ def is_grayscale(image_path: str) -> bool:
             return True
         
         return False
-    except:
+    except Exception:
         return False

@@ -7,7 +7,7 @@ Supports summary, detailed, and shift reports.
 """
 
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from point9_platform.tools.decorator import tool
 
 

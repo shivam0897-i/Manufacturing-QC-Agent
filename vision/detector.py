@@ -6,7 +6,16 @@ YOLOv8-based defect detection for solar module EL images.
 """
 
 import os
+import tempfile
+from pathlib import Path
 from typing import Dict, Any, List, Optional
+
+from PIL import Image, ImageDraw, ImageFont
+
+try:
+    from ultralytics import YOLO
+except ImportError:
+    YOLO = None
 
 # Defect class names (must match dataset.yaml)
 DEFECT_CLASSES = [
@@ -103,8 +112,6 @@ class DefectDetector:
 
     @staticmethod
     def _save_annotated_image(image_path: str, annotated_path: str, defects: List[Dict[str, Any]]) -> None:
-        from PIL import Image, ImageDraw, ImageFont
-
         image = Image.open(image_path).convert("RGB")
         draw = ImageDraw.Draw(image)
 
@@ -142,9 +149,12 @@ class DefectDetector:
         if not self.model_path or not os.path.exists(self.model_path):
             print(f"Model not found: {self.model_path}")
             return False
+
+        if YOLO is None:
+            print("YOLO dependency not installed: ultralytics")
+            return False
         
         try:
-            from ultralytics import YOLO
             self.model = YOLO(self.model_path)
             self._loaded = True
             print(f"Model loaded successfully: {self.model_path}")
@@ -229,15 +239,13 @@ class DefectDetector:
             severity_counts = self._severity_counts(defects)
             
             # Save annotated image
-            import tempfile
             if output_dir is None:
                 output_dir = tempfile.gettempdir()
             
             os.makedirs(output_dir, exist_ok=True)
             
             # Generate annotated filename
-            from pathlib import Path as PathLib
-            input_filename = PathLib(image_path).stem
+            input_filename = Path(image_path).stem
             annotated_filename = f"{input_filename}_annotated.jpg"
             annotated_path = os.path.join(output_dir, annotated_filename)
             

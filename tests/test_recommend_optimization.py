@@ -24,7 +24,7 @@ class RecommendOptimizationTests(TestCase):
             ]
         )
 
-        with patch("litellm.completion", return_value=response) as completion:
+        with patch("tools.recommend_optimization.completion", return_value=response) as completion:
             result = generate_llm_recommendations(
                 [{"defect_type": "crack", "severity": "high"}],
                 "rules",
@@ -72,3 +72,40 @@ class RecommendOptimizationTests(TestCase):
         self.assertIn("Review lamination temperature profile", recommendation_text)
         self.assertIn("Reduce lamination temperature by 3-5°C", recommendation_text)
         self.assertIn("Check conveyor alignment and handling procedures", recommendation_text)
+
+    def test_invalid_llm_priority_is_normalized(self):
+        state = {
+            "results": {
+                "analyze_image": {
+                    "status": "success",
+                    "results": [
+                        {
+                            "status": "success",
+                            "defects": [
+                                {"defect_type": "crack", "severity": "high"},
+                            ],
+                        }
+                    ],
+                }
+            }
+        }
+        llm_result = {
+            "analysis": {},
+            "recommendations": [
+                {
+                    "action": "Review lamination temperature profile",
+                    "priority": "urgent",
+                }
+            ],
+        }
+
+        with patch("tools.recommend_optimization.generate_llm_recommendations", return_value=llm_result):
+            result = recommend_optimization(state=state)
+
+        llm_recommendation = next(
+            rec
+            for rec in result["recommendations"]
+            if rec["recommendation"] == "Review lamination temperature profile"
+        )
+        self.assertEqual("medium", llm_recommendation["priority"])
+        self.assertEqual(2, result["priority_summary"]["medium"])

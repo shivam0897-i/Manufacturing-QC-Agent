@@ -7,7 +7,7 @@ Uses keyword matching with relevance scoring (lightweight RAG alternative).
 """
 
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any
 from point9_platform.tools.decorator import tool
 
 

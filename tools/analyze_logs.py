@@ -8,12 +8,24 @@ Supports: temperature, speed, pressure, humidity, and other numeric parameters.
 
 import csv
 import io
-import re
-from datetime import datetime
+import os
 from typing import Dict, Any, List, Optional
 from statistics import mean, stdev
+import yaml
+
 from point9_platform.tools.decorator import tool
 from tools._utils import find_document, get_available_doc_ids
+
+
+def _load_field_units() -> Dict[str, Any]:
+    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f) or {}
+            field_units = config.get("FIELD_UNITS", {})
+            return {k.lower(): v for k, v in field_units.items()}
+    except Exception:
+        return {}
 
 
 def parse_csv_log(content: str) -> List[Dict[str, Any]]:
@@ -82,20 +94,8 @@ def detect_anomalies(
     Detect anomalies using statistical analysis (z-score method).
     Anomalies are values that deviate more than threshold_std standard deviations.
     """
-    import yaml
-    import os
-    
     # Load field units from config
-    field_units = {}
-    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-            field_units = config.get("FIELD_UNITS", {})
-            # Convert keys to lowercase for case-insensitive matching
-            field_units = {k.lower(): v for k, v in field_units.items()}
-    except Exception:
-        pass  # Continue without units if config not found
+    field_units = _load_field_units()
     
     anomalies = []
     
@@ -154,19 +154,8 @@ def detect_anomalies(
 
 def detect_trends(records: List[Dict[str, Any]], numeric_fields: List[str]) -> List[Dict[str, Any]]:
     """Detect trends in numeric parameters over time."""
-    import yaml
-    import os
-    
     # Load field units from config
-    field_units = {}
-    config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-            field_units = config.get("FIELD_UNITS", {})
-            field_units = {k.lower(): v for k, v in field_units.items()}
-    except Exception:
-        pass
+    field_units = _load_field_units()
     
     trends = []
     
@@ -282,17 +271,7 @@ def analyze_logs(
         
         # Calculate summary statistics
         # Load field units for stats
-        import yaml
-        import os
-        field_units = {}
-        config_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config.yaml")
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = yaml.safe_load(f)
-                field_units = config.get("FIELD_UNITS", {})
-                field_units = {k.lower(): v for k, v in field_units.items()}
-        except Exception:
-            pass
+        field_units = _load_field_units()
         
         summary_stats = {}
         for field in numeric_fields:

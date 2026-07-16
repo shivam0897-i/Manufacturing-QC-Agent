@@ -9,6 +9,7 @@ fastapi>=0.100.0
 uvicorn>=0.23.0
 python-multipart>=0.0.6
 litellm>=1.0.0
+mlflow[genai]>=3.10.0
 
 # === Agent Platform ===
 git+https://github.com/shivam0897-i/agent-platform.git

@@ -31,6 +31,15 @@ class ApiContractTests(TestCase):
         self.assertEqual("string", files_schema["items"]["type"])
         self.assertEqual("binary", files_schema["items"]["format"])
 
+    def test_mlflow_status_endpoint_defaults_disabled(self):
+        response = self.client.get("/observability/mlflow")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(
+            {"success": True, "mlflow": {"enabled": False, "reason": "disabled"}},
+            response.json(),
+        )
+
     def test_local_annotated_path_is_published_as_served_url(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             previous_outputs_dir = api_main.LOCAL_OUTPUTS_DIR

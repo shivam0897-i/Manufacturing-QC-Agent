@@ -18,6 +18,13 @@ LLM_MAX_TOKENS: 4096
 CONFIDENCE_THRESHOLD: 0.5
 FALSE_POSITIVE_TARGET: 0.05
 
+# Observability
+# Enable with QC_ENABLE_MLFLOW=true and point QC_MLFLOW_TRACKING_URI to a
+# separate MLflow server. Keep disabled by default on Hugging Face Spaces.
+ENABLE_MLFLOW: false
+MLFLOW_TRACKING_URI:
+MLFLOW_EXPERIMENT_NAME: manufacturing-qc-agent
+
 # Defect Categories (PVEL-AD - 12 classes matching trained model)
 DEFECT_CATEGORIES:
   - black_core

@@ -8,14 +8,20 @@ Detects defects in solar module images using:
 """
 
 import os
+import tempfile
 from typing import Dict, Any, List
 from point9_platform.tools.decorator import tool
 from settings import QCSettings
-from tools._utils import find_document, get_available_doc_ids
+from tools._utils import find_document
+
+try:
+    from point9_platform.storage import get_s3_storage
+except ImportError:
+    get_s3_storage = None
 
 # Import YOLOv8 detector
 try:
-    from vision.detector import get_detector, DEFECT_CLASSES, SEVERITY_MAP
+    from vision.detector import get_detector
     DETECTOR_AVAILABLE = True
 except ImportError:
     DETECTOR_AVAILABLE = False
@@ -254,7 +260,6 @@ def analyze_image(
             # Run detection WITH annotation
             try:
                 # Create temp output directory for annotated images
-                import tempfile
                 output_dir = tempfile.mkdtemp(prefix="qc_annotated_")
                 
                 # Determine which model to use
@@ -336,8 +341,7 @@ def analyze_image(
                     if annotated_local_path and os.path.exists(annotated_local_path):
                         session_id = state.get("session_id", "unknown")
                         try:
-                            from point9_platform.storage import get_s3_storage
-                            s3_storage = get_s3_storage()
+                            s3_storage = get_s3_storage() if get_s3_storage else None
                             if s3_storage:
                                 s3_key = f"outputs/{session_id}/annotated/{os.path.basename(annotated_local_path)}"
                                 upload_result = s3_storage.upload_file(annotated_local_path, s3_key)

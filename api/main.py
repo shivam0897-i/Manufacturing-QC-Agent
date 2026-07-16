@@ -6,32 +6,44 @@ FastAPI endpoints for the Manufacturing QC Agent.
 Uses LLM-based planning and tool calling.
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
-from fastapi.openapi.utils import get_openapi
-from fastapi.responses import FileResponse, StreamingResponse
-from typing import Dict, Any, Optional, List, TypedDict
-from datetime import datetime, timezone
-import uuid
+import asyncio
+import json
 import os
 import re
 import shutil
 import tempfile
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Dict, List, Optional, TypedDict
 from urllib.parse import urljoin
 
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# Load .env file before anything else
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
+from fastapi.openapi.utils import get_openapi
+from fastapi.responses import FileResponse, StreamingResponse
 from dotenv import load_dotenv
-load_dotenv()
+from litellm import completion
 
 from agent import QCAgent
-from point9_platform.observability.emitter import remove_emitter
 from point9_platform.health import create_health_router
 from point9_platform.observability import setup_logging, get_logger
-from litellm import completion
+from point9_platform.observability.emitter import get_or_create_emitter, remove_emitter
+from prompts.templates import CHAT_SYSTEM_PROMPT
 from settings import QCSettings
+from observability.mlflow import (
+    get_mlflow_status,
+    set_span_outputs,
+    setup_mlflow_observability,
+    trace_span,
+    update_current_trace,
+)
+from tools.analyze_image import find_model_path, find_rgb_model_path
+from tools.recommend_optimization import recommend_optimization
+from vision.detector import get_detector
+from vision.rgb_classifier import get_rgb_classifier
+
+# Load .env before settings are instantiated.
+load_dotenv()
 
 # Import storage services from platform
 try:
@@ -51,6 +63,9 @@ settings = QCSettings()
 # Constants
 AGENT_NAME = "manufacturing_qc_agent"  # Used to identify sessions in shared MongoDB
 LOCAL_OUTPUTS_DIR = Path("outputs")
+
+# Configure optional MLflow tracing before any LiteLLM calls.
+setup_mlflow_observability(settings, logger)
 
 # Initialize storage (if enabled)
 mongo_store = None
@@ -131,6 +146,7 @@ tags_metadata = [
     {"name": "Session", "description": "Session management - create, list, and clear sessions"},
     {"name": "Agent", "description": "AI agent for defect detection and process optimization"},
     {"name": "Streaming", "description": "Real-time updates via Server-Sent Events"},
+    {"name": "Observability", "description": "Runtime observability and tracing status"},
 ]
 
 app = FastAPI(
@@ -271,6 +287,15 @@ app.openapi = custom_openapi
 app.include_router(create_health_router())
 
 
+@app.get("/observability/mlflow", summary="Get MLflow tracing status", tags=["Observability"])
+async def get_mlflow_observability_status():
+    """Return non-sensitive MLflow tracing setup status."""
+    return {
+        "success": True,
+        "mlflow": get_mlflow_status()
+    }
+
+
 @app.get("/outputs/{session_id}/annotated/{filename}", include_in_schema=False)
 async def get_annotated_output(session_id: str, filename: str):
     """Serve locally stored annotated images when S3 is not configured."""
@@ -285,10 +310,6 @@ async def get_annotated_output(session_id: str, filename: str):
 async def load_models_on_startup():
     """Pre-load defect detection models at server startup."""
     try:
-        from vision.detector import get_detector
-        from vision.rgb_classifier import get_rgb_classifier
-        from tools.analyze_image import find_model_path, find_rgb_model_path
-        
         # Load YOLOv8
         yolo_path = find_model_path()
         if yolo_path:
@@ -326,8 +347,6 @@ async def create_session():
     2. GET /stream/{session_id} → Subscribe to SSE
     3. POST /process?session_id={session_id} → Start processing
     """
-    from point9_platform.observability.emitter import get_or_create_emitter
-    
     session_id = str(uuid.uuid4())
     
     # Register emitter for this session so stream endpoint can find it
@@ -486,12 +505,46 @@ async def process_qc(
         logger.info("[%s] Enhanced message: %s...", session_id, enhanced_message[:200])
         
         # Run in thread pool to avoid blocking event loop (enables real-time SSE streaming)
-        import asyncio
-        result = await asyncio.to_thread(
-            agent.process,
-            message=enhanced_message,
-            documents=documents
-        )
+        document_summary = [
+            {
+                "document_id": doc_id,
+                "filename": info.get("filename"),
+                "type": info.get("type"),
+            }
+            for doc_id, info in documents.items()
+        ]
+        with trace_span(
+            "qc.process",
+            span_type="CHAIN",
+            attributes={
+                "agent": AGENT_NAME,
+                "endpoint": "/process",
+                "session_id": session_id,
+                "documents_count": len(documents),
+            },
+            inputs={
+                "message_length": len(message or ""),
+                "documents": document_summary,
+            },
+        ) as process_span:
+            update_current_trace(
+                tags={"agent": AGENT_NAME, "endpoint": "/process"},
+                metadata={"session_id": session_id},
+                client_request_id=session_id,
+            )
+            result = await asyncio.to_thread(
+                agent.process,
+                message=enhanced_message,
+                documents=documents
+            )
+            result_keys = list(result.get("results", {}).keys()) if isinstance(result, dict) else []
+            set_span_outputs(
+                process_span,
+                {
+                    "success": not bool(result.get("error")) if isinstance(result, dict) else False,
+                    "result_keys": result_keys,
+                },
+            )
         
         logger.info("[%s] Agent processing complete", session_id)
 
@@ -533,7 +586,6 @@ async def process_qc(
         if not rec_results or rec_results.get("status") != "success":
             # Agent skipped recommend_optimization - call it directly
             try:
-                from tools.recommend_optimization import recommend_optimization
                 state = {"results": {"analyze_image": image_results, "analyze_logs": log_results}}
                 rec_results = recommend_optimization(state=state)
                 logger.info("[%s] Generated %s recommendations (direct call)", session_id, len(rec_results.get('recommendations', [])))
@@ -628,6 +680,27 @@ async def process_qc(
             response["log_analysis"] = log_results
         if result.get("error"):
             response["error"] = result["error"]
+
+        with trace_span(
+            "qc.process.summary",
+            span_type="CHAIN",
+            attributes={
+                "agent": AGENT_NAME,
+                "endpoint": "/process",
+                "session_id": session_id,
+            },
+            inputs={"documents_processed": len(documents)},
+        ) as summary_span:
+            set_span_outputs(
+                summary_span,
+                {
+                    "total_defects": response["summary"]["total_defects"],
+                    "total_anomalies": response["summary"]["total_anomalies"],
+                    "total_recommendations": response["summary"]["total_recommendations"],
+                    "action_required": response["summary"]["action_required"],
+                    "highest_severity": response["summary"]["highest_severity"],
+                },
+            )
         
         return response
         
@@ -666,7 +739,6 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
         defects = session.get("defects", [])
         anomalies = session.get("anomalies", [])
         recommendations = session.get("recommendations", [])
-        analysis_results = session.get("analysis_results", {})
         
         # Build detailed context with FULL data for meaningful answers
         context_parts = ["=== PREVIOUS ANALYSIS RESULTS ===\n"]
@@ -723,8 +795,6 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
         # Get previous chat history (limit to last 10 exchanges to manage context size)
         chat_history = session.get("chat_history", [])[-10:]
         
-        # Build messages with history
-        from prompts.templates import CHAT_SYSTEM_PROMPT
         messages = [
             {"role": "system", "content": CHAT_SYSTEM_PROMPT.format(context=full_context)}
         ]
@@ -738,11 +808,34 @@ async def chat(message: str = Form(...), session_id: str = Form(...)):
         messages.append({"role": "user", "content": message})
         
         # Use LLM to answer question with FULL context + history
-        response = completion(
-            model=settings.DEFAULT_LLM_MODEL,
-            messages=messages,
-            max_tokens=2000  # Increased for detailed responses
-        )
+        with trace_span(
+            "qc.chat",
+            span_type="CHAIN",
+            attributes={
+                "agent": AGENT_NAME,
+                "endpoint": "/chat",
+                "session_id": session_id,
+                "history_count": len(chat_history),
+            },
+            inputs={"message_length": len(message or "")},
+        ) as chat_span:
+            update_current_trace(
+                tags={"agent": AGENT_NAME, "endpoint": "/chat"},
+                metadata={"session_id": session_id},
+                client_request_id=session_id,
+            )
+            response = completion(
+                model=settings.DEFAULT_LLM_MODEL,
+                messages=messages,
+                max_tokens=2000  # Increased for detailed responses
+            )
+            set_span_outputs(
+                chat_span,
+                {
+                    "model": settings.DEFAULT_LLM_MODEL,
+                    "history_count": len(chat_history),
+                },
+            )
         
         answer = response.choices[0].message.content.strip()
         
@@ -946,16 +1039,12 @@ async def stream_updates(session_id: str):
     Stream processing updates for a session using Server-Sent Events.
     Connect via EventSource in frontend for real-time updates.
     """
-    import asyncio
-    import json
-    
     async def event_generator():
         # Yield connection event immediately
         yield f"data: {json.dumps({'event': 'connected', 'session_id': session_id})}\n\n"
         
         # Get or create emitter for this session
         try:
-            from point9_platform.observability.emitter import get_or_create_emitter
             emitter = get_or_create_emitter(session_id)
             
             if emitter is None:

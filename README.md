@@ -129,6 +129,41 @@ The agent runs inside `asyncio.to_thread()` to avoid blocking the FastAPI event 
 | `POST` | `/session/{session_id}/clear-chat` | Clear chat history only |
 | `GET` | `/sessions` | List recent sessions (requires MongoDB) |
 | `GET` | `/sessions/{session_id}` | Get session details + S3 presigned URLs |
+| `GET` | `/observability/mlflow` | Non-sensitive MLflow tracing status |
+
+---
+
+## MLflow Observability
+
+MLflow tracing is optional and disabled by default. When enabled, the app:
+
+- turns on `mlflow.litellm.autolog()` so LiteLLM/Gemini calls record prompts, completions, latency, token usage, cost metadata when available, cache hits, and exceptions
+- creates application spans for `/process`, `/process` summaries, and `/chat`
+- tags traces with `session_id`, endpoint, and agent name
+- records metadata summaries only for app spans; uploaded file bytes and annotated images are not logged to MLflow
+
+Local setup:
+
+```bash
+pip install "mlflow[genai]>=3.10.0"
+mlflow server --host 0.0.0.0 --port 5000
+```
+
+App configuration:
+
+```bash
+QC_ENABLE_MLFLOW=true
+QC_MLFLOW_TRACKING_URI=http://localhost:5000
+QC_MLFLOW_EXPERIMENT_NAME=manufacturing-qc-agent
+```
+
+Runtime check:
+
+```bash
+curl http://localhost:8000/observability/mlflow
+```
+
+On Hugging Face Spaces, keep MLflow disabled unless `QC_MLFLOW_TRACKING_URI` points to a separate MLflow server. For future EC2 deployment, run MLflow as a separate service with persistent backend storage instead of writing local tracking data inside the API container.
 
 ---
 

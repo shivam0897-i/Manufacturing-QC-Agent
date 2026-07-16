@@ -5,8 +5,9 @@ Manufacturing QC Agent
 AI agent for solar module defect detection and process optimization.
 """
 
-from typing import Dict, List, Any
+from typing import Dict, List
 from point9_platform.agent.base import BaseAgent
+from point9_platform.settings.system import SYSTEM_SETTINGS
 from state import QCAgentState
 from settings import QCSettings
 from prompts.templates import PROMPTS
@@ -46,8 +47,6 @@ class QCAgent(BaseAgent[QCAgentState]):
         ]
     
     def create_initial_state(self, session_id: str) -> QCAgentState:
-        from point9_platform.settings.system import SYSTEM_SETTINGS
-        
         return QCAgentState(
             messages=[],
             session_id=session_id,

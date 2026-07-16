@@ -9,7 +9,9 @@ Generates intelligent process optimization recommendations using:
 
 import json
 from typing import Dict, Any, List
+from litellm import completion
 from point9_platform.tools.decorator import tool
+from settings import QCSettings
 
 # Import prompts
 from prompts.templates import (
@@ -226,6 +228,17 @@ ANOMALY_RECOMMENDATIONS = {
 }
 
 
+VALID_PRIORITIES = {"critical", "high", "medium", "low"}
+
+
+def _normalize_priority(priority: Any, default: str = "medium") -> str:
+    if isinstance(priority, str):
+        normalized = priority.strip().lower()
+        if normalized in VALID_PRIORITIES:
+            return normalized
+    return default
+
+
 def get_defect_recommendations(defects: List[Dict]) -> List[Dict]:
     """Generate recommendations based on detected defects (both YOLOv8 and EfficientNet)."""
     recommendations = []
@@ -268,7 +281,6 @@ def get_anomaly_recommendations(anomalies: List[Dict]) -> List[Dict]:
     
     for anomaly in anomalies:
         field = anomaly.get("field", "")
-        severity = anomaly.get("severity", "medium")
         value = anomaly.get("value", 0)
         expected_mean = anomaly.get("expected_mean", 0)
         unit = anomaly.get("unit")  # Get unit from anomaly
@@ -299,8 +311,6 @@ def get_anomaly_recommendations(anomalies: List[Dict]) -> List[Dict]:
 def generate_llm_recommendations(defects: List[Dict], rules_context: str) -> Dict[str, Any]:
     """Generate recommendations using LLM with manufacturing rules as context."""
     try:
-        from litellm import completion
-        
         defects_summary = format_defects_summary(defects)
         user_prompt = RECOMMENDATION_USER_PROMPT.format(
             defects_summary=defects_summary,
@@ -311,8 +321,6 @@ def generate_llm_recommendations(defects: List[Dict], rules_context: str) -> Dic
             {"role": "system", "content": RECOMMENDATION_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
         ]
-        
-        from settings import QCSettings
 
         response = completion(
             model=QCSettings().RECOMMENDATION_LLM_MODEL,
@@ -406,7 +414,7 @@ def recommend_optimization(
         for rec in llm_recs:
             normalized = {
                 "recommendation": rec.get("action") or rec.get("recommendation", ""),
-                "priority": rec.get("priority", "medium"),
+                "priority": _normalize_priority(rec.get("priority"), default="medium"),
                 "rationale": rec.get("rationale") if is_valid(rec.get("rationale")) else None,
                 "source": "llm"
             }
@@ -436,7 +444,9 @@ def recommend_optimization(
         
         priority_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
         for rec in all_recommendations:
-            priority_counts[rec.get("priority", "low")] += 1
+            priority = _normalize_priority(rec.get("priority"), default="low")
+            rec["priority"] = priority
+            priority_counts[priority] += 1
         
         return {
             "status": "success",
@@ -476,7 +486,9 @@ def recommend_optimization(
     
     priority_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     for rec in all_recommendations:
-        priority_counts[rec.get("priority", "low")] += 1
+        priority = _normalize_priority(rec.get("priority"), default="low")
+        rec["priority"] = priority
+        priority_counts[priority] += 1
     
     return {
         "status": "success",
