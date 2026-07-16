@@ -1,4 +1,5 @@
 import sys
+from unittest.mock import patch
 from types import SimpleNamespace
 from unittest import TestCase
 
@@ -115,6 +116,22 @@ class MlflowObservabilityTests(TestCase):
         self.assertFalse(settings.ENABLE_MLFLOW)
         self.assertIsNone(settings.MLFLOW_TRACKING_URI)
         self.assertEqual("manufacturing-qc-agent", settings.MLFLOW_EXPERIMENT_NAME)
+
+    def test_qc_prefixed_env_overrides_yaml_defaults(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "QC_ENABLE_MLFLOW": "true",
+                "QC_MLFLOW_TRACKING_URI": "file:///tmp/mlruns",
+                "QC_MLFLOW_EXPERIMENT_NAME": "hf-space",
+            },
+            clear=False,
+        ):
+            settings = QCSettings()
+
+        self.assertTrue(settings.ENABLE_MLFLOW)
+        self.assertEqual("file:///tmp/mlruns", settings.MLFLOW_TRACKING_URI)
+        self.assertEqual("hf-space", settings.MLFLOW_EXPERIMENT_NAME)
 
     def test_setup_requires_tracking_uri_when_enabled(self):
         fake_mlflow = _FakeMLflow()

@@ -5,8 +5,22 @@ QC Agent Settings
 Domain-specific settings for Manufacturing QC Agent.
 """
 
+import os
 from point9_platform.settings.user import UserSettings
 from typing import Optional, List
+
+
+def _prefixed_env_overrides(settings_cls) -> dict:
+    prefix = getattr(settings_cls.Config, "env_prefix", "")
+    if not prefix:
+        return {}
+
+    fields = getattr(settings_cls, "model_fields", None) or getattr(settings_cls, "__fields__", {})
+    return {
+        field_name: os.environ[env_key]
+        for field_name in fields
+        if (env_key := f"{prefix}{field_name}") in os.environ
+    }
 
 
 class QCSettings(UserSettings):
@@ -15,6 +29,11 @@ class QCSettings(UserSettings):
     
     Extends UserSettings with QC-specific configuration.
     """
+
+    def __init__(self, **kwargs):
+        # point9_platform merges config.yaml as constructor kwargs, so explicitly
+        # pass QC_* env values here to preserve env-overrides-YAML precedence.
+        super().__init__(**{**_prefixed_env_overrides(self.__class__), **kwargs})
     
     # === MODEL ===
     DEFAULT_LLM_MODEL: str = "gemini/gemini-2.5-pro"
