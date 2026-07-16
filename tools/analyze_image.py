@@ -10,6 +10,7 @@ Detects defects in solar module images using:
 import os
 from typing import Dict, Any, List
 from point9_platform.tools.decorator import tool
+from settings import QCSettings
 from tools._utils import find_document, get_available_doc_ids
 
 # Import YOLOv8 detector
@@ -59,6 +60,12 @@ def find_rgb_model_path() -> str:
     return None
 
 
+def _resolve_confidence_threshold(confidence_threshold: float = None) -> float:
+    if confidence_threshold is None:
+        return QCSettings().CONFIDENCE_THRESHOLD
+    return confidence_threshold
+
+
 @tool(
     name="analyze_image",
     description="Analyze solar module images for defects. Supports EL grayscale (YOLOv8) and RGB photos (EfficientNet). Can process single image, batch, or ALL images.",
@@ -76,7 +83,7 @@ def find_rgb_model_path() -> str:
             },
             "confidence_threshold": {
                 "type": "number",
-                "description": "Minimum confidence for detection (default 0.25)"
+                "description": "Minimum confidence for detection (defaults to configured QC confidence threshold)"
             },
             "model_type": {
                 "type": "string",
@@ -90,7 +97,7 @@ def find_rgb_model_path() -> str:
 def analyze_image(
     image_id: str = None, 
     image_ids: List[str] = None,
-    confidence_threshold: float = 0.25,
+    confidence_threshold: float = None,
     model_type: str = "auto",
     state: Dict[str, Any] = None
 ) -> Dict[str, Any]:
@@ -104,13 +111,14 @@ def analyze_image(
     Args:
         image_id: Single document ID (e.g., 'doc_1')
         image_ids: List of document IDs for batch processing
-        confidence_threshold: Minimum confidence for detection (default 0.25)
+        confidence_threshold: Minimum confidence for detection. Uses configured default when omitted.
         model_type: 'auto' (detect image type), 'yolo', or 'efficientnet'
         state: Current agent state (injected by executor)
     
     Returns:
         Detection result with summary and details for all processed images.
     """
+    confidence_threshold = _resolve_confidence_threshold(confidence_threshold)
     documents = state.get("documents", {})
     
     # Resolve input targets

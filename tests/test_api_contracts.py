@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 from types import SimpleNamespace
+from datetime import datetime, timezone
 from uuid import UUID
 
 os.environ.setdefault("QC_ENABLE_MONGODB", "False")
@@ -48,16 +49,20 @@ class ApiContractTests(TestCase):
                     ],
                 }
 
-                api_main._publish_local_annotated_artifacts(image_results, "session-123")
+                api_main._publish_local_annotated_artifacts(
+                    image_results,
+                    "session-123",
+                    base_url="https://qc.example.com/app/",
+                )
 
                 result = image_results["results"][0]
                 self.assertNotIn("annotated_image_path", result)
                 self.assertEqual(
-                    "/outputs/session-123/annotated/annotated.jpg",
+                    "https://qc.example.com/outputs/session-123/annotated/annotated.jpg",
                     result["annotated_image_url"],
                 )
 
-                response = self.client.get(result["annotated_image_url"])
+                response = self.client.get("/outputs/session-123/annotated/annotated.jpg")
                 self.assertEqual(200, response.status_code)
                 self.assertEqual(b"annotated-image", response.content)
             finally:
@@ -84,3 +89,41 @@ class ApiContractTests(TestCase):
 
         self.assertIn("Found 1 defect(s): crack", explanation)
         warning.assert_not_called()
+
+    def test_session_details_omits_raw_internal_results(self):
+        now = datetime.now(timezone.utc)
+
+        class FakeMongoStore:
+            def get_session(self, session_id):
+                return {
+                    "session_id": session_id,
+                    "status": "completed",
+                    "created_at": now,
+                    "updated_at": now,
+                    "input_files": [],
+                    "intermediate_results": {
+                        "final_results": {
+                            "defects": [],
+                            "anomalies": [],
+                            "recommendations": [],
+                            "raw_results": {
+                                "analyze_image_call_secret__thought__internal": {
+                                    "status": "success"
+                                }
+                            },
+                        }
+                    },
+                    "logs": [],
+                    "chat_history": [],
+                }
+
+        previous_mongo_store = api_main.mongo_store
+        api_main.mongo_store = FakeMongoStore()
+        try:
+            response = self.client.get("/sessions/session-123")
+        finally:
+            api_main.mongo_store = previous_mongo_store
+
+        self.assertEqual(200, response.status_code)
+        final = response.json()["results"]["final"]
+        self.assertNotIn("raw_results", final)

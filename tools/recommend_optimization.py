@@ -418,6 +418,12 @@ def recommend_optimization(
             if is_valid(rec.get("expected_impact")):
                 normalized["expected_impact"] = rec["expected_impact"]
             all_recommendations.append(normalized)
+
+        # LLM output adds context, but deterministic defect rules remain required.
+        if defects:
+            for rec in get_defect_recommendations(defects):
+                rec["source"] = "rules"
+                all_recommendations.append(rec)
         
         # Add anomaly recommendations from rules (LLM focused on defects)
         if anomalies:

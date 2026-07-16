@@ -30,6 +30,28 @@ def _count_by_severity(items: list) -> Dict[str, int]:
     return counts
 
 
+def _extract_image_defects(image_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Extract defects from legacy single-image and current batch image results."""
+    if not isinstance(image_result, dict):
+        return []
+
+    defects = []
+    direct_defects = image_result.get("defects", [])
+    if isinstance(direct_defects, list):
+        defects.extend(item for item in direct_defects if isinstance(item, dict))
+
+    batch_results = image_result.get("results", [])
+    if isinstance(batch_results, list):
+        for result in batch_results:
+            if not isinstance(result, dict) or result.get("status") != "success":
+                continue
+            result_defects = result.get("defects", [])
+            if isinstance(result_defects, list):
+                defects.extend(item for item in result_defects if isinstance(item, dict))
+
+    return defects
+
+
 def _generate_summary_report(defects: list, anomalies: list, recommendations: list) -> Dict:
     """Generate a summary report."""
     defect_counts = _count_by_type(defects, "defect_type")
@@ -192,8 +214,7 @@ def generate_report(
             if key.startswith("analyze_image"):
                 img_result = val
                 break
-        if isinstance(img_result, dict):
-            defects = img_result.get("defects", [])
+        defects = _extract_image_defects(img_result)
     
     if not anomalies:
         log_result = {}

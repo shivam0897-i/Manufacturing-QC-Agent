@@ -6,7 +6,7 @@ FastAPI endpoints for the Manufacturing QC Agent.
 Uses LLM-based planning and tool calling.
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import FileResponse, StreamingResponse
 from typing import Dict, Any, Optional, List, TypedDict
@@ -17,6 +17,7 @@ import re
 import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import urljoin
 
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -164,7 +165,26 @@ def _local_annotated_artifact_path(session_id: str, filename: str) -> Path:
     return LOCAL_OUTPUTS_DIR / safe_session / "annotated" / safe_filename
 
 
-def _publish_local_annotated_artifacts(image_results: Dict[str, Any], session_id: str) -> None:
+def _absolute_url(base_url: Optional[str], path: str) -> str:
+    if not base_url:
+        return path
+    return urljoin(str(base_url), path)
+
+
+def _public_final_results(final_results: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(final_results, dict):
+        return final_results
+
+    public_results = dict(final_results)
+    public_results.pop("raw_results", None)
+    return public_results
+
+
+def _publish_local_annotated_artifacts(
+    image_results: Dict[str, Any],
+    session_id: str,
+    base_url: Optional[str] = None,
+) -> None:
     """Convert container-local annotation paths into client-fetchable URLs."""
     if not isinstance(image_results, dict):
         return
@@ -189,7 +209,8 @@ def _publish_local_annotated_artifacts(image_results: Dict[str, Any], session_id
                 shutil.copy2(source, destination)
 
             safe_session = _safe_path_component(session_id)
-            item["annotated_image_url"] = f"/outputs/{safe_session}/annotated/{destination.name}"
+            relative_url = f"/outputs/{safe_session}/annotated/{destination.name}"
+            item["annotated_image_url"] = _absolute_url(base_url, relative_url)
 
             try:
                 temp_root = Path(tempfile.gettempdir()).resolve()
@@ -353,6 +374,7 @@ Be concise and actionable."""
 
 @app.post("/process", summary="Analyze files using AI agent with planning", tags=["Agent"])
 async def process_qc(
+    request: Request,
     message: str = Form("Analyze for defects"),
     session_id: Optional[str] = Form(None),
     files: List[UploadFile] = File(...)
@@ -511,7 +533,11 @@ async def process_qc(
 
         # Convert container-local annotation files into client-accessible URLs.
         if image_results:
-            _publish_local_annotated_artifacts(image_results, session_id)
+            _publish_local_annotated_artifacts(
+                image_results,
+                session_id,
+                base_url=str(request.base_url),
+            )
         
         # Store intermediate results in MongoDB
         if mongo_store:
@@ -1068,7 +1094,7 @@ async def get_session_details(session_id: str):
             "image_analysis": intermediate.get("analyze_image"),
             "log_analysis": intermediate.get("analyze_logs"),
             "recommendations": intermediate.get("recommend_optimization"),
-            "final": intermediate.get("final_results")
+            "final": _public_final_results(intermediate.get("final_results"))
         },
         "logs": session.get("logs", [])[:20],  # Last 20 logs
         "chat_history": session.get("chat_history", [])
