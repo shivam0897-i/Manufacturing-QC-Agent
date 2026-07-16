@@ -74,6 +74,21 @@ class ApiContractTests(TestCase):
         self.assertNotEqual("string", session_id)
         UUID(session_id)
 
+    def test_external_base_url_prefers_forwarded_proxy_headers(self):
+        request = SimpleNamespace(
+            headers={
+                "x-forwarded-proto": "https",
+                "x-forwarded-host": "point9-manufacturingqc-agent.hf.space",
+                "host": "internal:7860",
+            },
+            base_url="http://internal:7860/",
+        )
+
+        self.assertEqual(
+            "https://point9-manufacturingqc-agent.hf.space/",
+            api_main._external_base_url(request),
+        )
+
     def test_empty_explanation_llm_content_uses_fallback_without_warning(self):
         response = SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content=None))]

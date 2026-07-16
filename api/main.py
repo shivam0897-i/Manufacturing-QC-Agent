@@ -171,6 +171,17 @@ def _absolute_url(base_url: Optional[str], path: str) -> str:
     return urljoin(str(base_url), path)
 
 
+def _external_base_url(request: Request) -> str:
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip()
+    forwarded_host = request.headers.get("x-forwarded-host", "").split(",", 1)[0].strip()
+    host = forwarded_host or request.headers.get("host", "").split(",", 1)[0].strip()
+
+    if forwarded_proto and host:
+        return f"{forwarded_proto}://{host}/"
+
+    return str(request.base_url)
+
+
 def _public_final_results(final_results: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not isinstance(final_results, dict):
         return final_results
@@ -536,7 +547,7 @@ async def process_qc(
             _publish_local_annotated_artifacts(
                 image_results,
                 session_id,
-                base_url=str(request.base_url),
+                base_url=_external_base_url(request),
             )
         
         # Store intermediate results in MongoDB
